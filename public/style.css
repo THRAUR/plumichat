@@ -1684,6 +1684,32 @@
 }
 .notice-continue:hover { background: var(--accent); color: var(--on-accent); }
 
+/* The resume offer is a stop notice with two answers, so it needs a quiet second
+   button — the accent stays on the one action worth taking. It doubles as
+   "Cancel" once armed, which is why it is styled by role rather than by label. */
+.notice-dismiss {
+  flex: none;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px; font-weight: 600;
+  padding: 4px 11px; border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.notice-dismiss:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
+/* Two buttons plus a sentence does not fit one line on a phone — the text was
+   being squeezed into a six-word-tall column. The sentence takes the full width
+   and the answers sit under it, right-aligned. */
+.notice.resume-offer { flex-wrap: wrap; row-gap: 9px; }
+.notice.resume-offer .ntext { flex: 1 0 100%; }
+.notice.resume-offer .notice-dismiss { margin-left: auto; }
+/* Armed: the work is scheduled, so the row states a fact rather than asking a
+   question. Green is a STATE here, not brand — the accent is reserved for the
+   action, and by this point there is no action left to take. */
+.notice.resume-offer.armed { border-color: var(--green-line); background: var(--green-dim); }
+.notice.resume-offer.armed .nico { color: var(--green); }
+
 /* ===================== Phone: bigger tap targets ===================== */
 /* Touch devices get ≥44px hit areas on composer controls so nothing is
    fiddly or clipped on a phone. Visual size can stay compact — we grow the

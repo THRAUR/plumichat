@@ -15,6 +15,18 @@ export let convTasks = {};       // convKey -> { id: { id, name, description, st
 export let convTaskOrder = {};   // convKey -> [id…] (arrival order, for a stable tray)
 export let waitingState = {};    // convKey -> { tasks, text } while a turn waits on background work
 export let limitsState = null;   // last {status, resetsAt, kind, overage} the server reported
+// resetsAt has been seen as both epoch seconds and epoch milliseconds; anything
+// that parses as a date is accepted, and anything that doesn't is simply not shown.
+// It lives HERE, with the limits state it reads, rather than in usage.js: stream.js
+// needs it too, and usage.js already imports stream.js — so importing it back would
+// have closed a cycle. server/resume.js and server/claude.js keep the same rule.
+export function limitResetMs(l) {
+  if (!l || l.resetsAt == null) return 0;
+  var v = l.resetsAt;
+  if (typeof v === "number") return v < 1e12 ? v * 1000 : v;
+  var t = Date.parse(String(v));
+  return Number.isFinite(t) ? t : 0;
+}
 // Real tokens this account has spent through PlumiChat inside the CURRENT rate-limit
 // window, summed from the usage every turn's `result` reports. The rate-limit
 // event itself carries NO consumption figure — only a status — so this is the

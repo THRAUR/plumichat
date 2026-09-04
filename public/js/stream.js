@@ -22,7 +22,7 @@ import { noteContext } from './panels/context.js';
 import { permAllowed, permMode } from './panels/perm.js';
 import { addError, addNotice, addRow, addTool, addUser, makeFileBox, mdNode, scrollDown } from './render.js';
 import { REATTACH_COOLDOWN_MS, activeSessionId, activeStreams, cur, draftFor, drafts, endingsSeen, projName, reattachTries, recentlyEnded, resetReattachTries, sessionsCache, setActiveSessionId, setCur, setViewKey, viewKey, viewToken } from './state.js';
-import { addTurnUsage, clearTasks, emitTasksChanged, noteTask, rekeyTaskState, setLimits, thinkingState, waitingState } from './tasks.js';
+import { addTurnUsage, clearTasks, emitTasksChanged, limitResetMs, noteTask, rekeyTaskState, setLimits, thinkingState, waitingState } from './tasks.js';
 import { flushQueued, renderTaskTray } from './tray.js';
 
 /* ---------- Live streaming assistant ---------- */
@@ -680,6 +680,13 @@ export function consumeStream(stream, project, responsePromise) {
       emitTasksChanged(stream.convKey);
       return;
     }
+    // The window is spent and the reset time is known: offer to carry the work on
+    // by itself. Rendered where the turn stopped, so it reads as part of the
+    // conversation rather than a system banner somewhere else.
+    if (ev.type === "limitPause") {
+      addResumeOffer(stream.convKey, ev);
+      return;
+    }
     if (ev.type === "thinkingTokens") {
       thinkingState[stream.convKey] = ev.estimated || 0;
       emitTasksChanged(stream.convKey);
@@ -765,6 +772,68 @@ export function stopCurrent() {
 }
 
 // Centered notice shown when a turn stops/errors, with a one-click Continue.
+/* The offer to carry on when the usage window reopens.
+
+   The whole point is that the person is about to stop watching, so the card
+   states the actual clock time it will resume, not "in 2 hours" — a relative
+   figure is unreadable once you have walked away from it. Arming is server-side
+   (POST /api/resume/arm); nothing here needs to stay open, which is exactly why
+   a browser timer would have been the wrong shape for this. */
+export function addResumeOffer(key, ev) {
+  var resetMs = limitResetMs({ resetsAt: ev.resetsAt });
+  if (!resetMs || resetMs <= Date.now()) return;   // nothing sensible to offer
+
+  var when = new Date(resetMs);
+  var clock = when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  var sameDay = when.toDateString() === new Date().toDateString();
+  var whenText = clock + (sameDay ? "" : " on " + when.toLocaleDateString([], { weekday: "long" }));
+
+  var n = document.createElement("div");
+  n.className = "notice stop resume-offer";
+  n.innerHTML = '<span class="nico">' + STOP_NOTICE_ICON + "</span>";
+  var s = document.createElement("span");
+  s.className = "ntext";
+  s.textContent = (ev.kind === "seven_day" ? "Weekly" : "Usage") +
+    " limit reached — the next window opens at " + whenText + ".";
+  n.appendChild(s);
+
+  var no = document.createElement("button");
+  no.type = "button"; no.className = "notice-dismiss"; no.textContent = "Not now";
+  no.addEventListener("click", function () { n.remove(); });
+
+  var yes = document.createElement("button");
+  yes.type = "button"; yes.className = "notice-continue"; yes.textContent = "Continue at " + clock;
+  yes.addEventListener("click", function () {
+    yes.disabled = true; yes.textContent = "Arming…";
+    apiFetch("/api/resume/arm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: key, resetsAt: ev.resetsAt, kind: ev.kind || "" })
+    }).then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.error || "could not arm"); }); })
+      .then(function () {
+        n.classList.add("armed");
+        s.textContent = "Picking this back up at " + whenText + ". You can close the app.";
+        yes.remove();
+        no.textContent = "Cancel";
+        no.onclick = null;
+        no.addEventListener("click", function () {
+          apiFetch("/api/resume/cancel", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key: key })
+          }).catch(function () {}).then(function () { n.remove(); });
+        });
+      })
+      .catch(function (err) {
+        yes.disabled = false; yes.textContent = "Continue at " + clock;
+        toast((err && err.message) || "Could not schedule that", true);
+      });
+  });
+
+  n.appendChild(no); n.appendChild(yes);
+  messages.appendChild(n);
+  scrollDown(false);
+}
+
 export function addStopNotice(project, key, ended) {
   var n = document.createElement("div");
   n.className = "notice stop";

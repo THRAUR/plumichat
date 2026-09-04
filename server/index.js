@@ -26,6 +26,7 @@ import { listSites, SITE_GROUPS } from './sites.js';
 import { appById, appLoginContext, appForOrigin } from './apps.js';
 import { changePassword, setEnvVar } from './credentials.js';
 import { getWorkspace, setWorkspace } from './settings.js';
+import { armResume, cancelResume, resumesFor, initResumes } from './resume.js';
 import { spendSummary } from './spend.js';
 import { listCommands } from './commands.js';
 import * as notepad from './notepad.js';
@@ -1133,6 +1134,26 @@ app.put('/api/settings/avatar', requireAuth, (req, res) => ok(res, () => {
   if (!req.user.id) throw new Error('register your account first');
   return updateUserAvatar(req.user.id, (req.body || {}).data);
 }));
+/* --- Carry on when the usage window reopens (server/resume.js) ---
+   Armed from the offer the client shows when a turn stops on a spent window. The
+   parameters are taken from the RUN, never from the request body: the client
+   names a conversation it can already see, and the server re-issues that turn's
+   own project, model, effort and approval mode. A body that could name a cwd or
+   widen a permission mode would be a way to run an arbitrary turn later, which is
+   precisely what this must not be. */
+app.get('/api/resume', requireAuth, (req, res) => ok(res, () => resumesFor(req.user.id)));
+app.post('/api/resume/arm', requireAuth, (req, res) => ok(res, () => {
+  const { key, resetsAt, kind } = req.body || {};
+  const run = getRun(String(key || ''));
+  if (!run) throw new Error('that conversation is no longer available to resume');
+  // Same ownership rule as attach/stop: a run belongs to whoever started it.
+  if (run.userId && run.userId !== req.user.id) throw new Error('not your conversation');
+  if (!run.spec) throw new Error('this turn cannot be resumed');
+  return armResume({ ...run.spec, key: run.key, userId: req.user.id, resetsAt, kind });
+}));
+app.post('/api/resume/cancel', requireAuth, (req, res) => ok(res, () =>
+  cancelResume(req.user.id, String((req.body || {}).key || ''))));
+
 app.delete('/api/settings/avatar', requireAuth, (req, res) => ok(res, () => {
   if (!req.user.id) throw new Error('register your account first');
   return removeUserAvatar(req.user.id);
@@ -1918,6 +1939,9 @@ if (EXPOSED && !authConfigured()) refuseToStart();
 const server = app.listen(PORT, HOST, () => {
   banner();
   try { initRunner(); } catch (err) { console.error('runner init failed:', err); }
+  // Re-arms anything waiting on a usage window, and sweeps once for a window that
+  // opened while the server was down — the case the feature exists for.
+  try { initResumes(); } catch (err) { console.error('resume init failed:', err); }
 });
 
 // Owner-only interactive terminal (WebSocket at /terminal). Gated to the owner

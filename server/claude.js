@@ -27,6 +27,14 @@ const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 // that saw it. /api/version serves this to a client with no live stream yet.
 let lastLimits = null;
 export function limitsSnapshot() { return lastLimits; }
+// resetsAt has been seen as both epoch seconds and epoch milliseconds. Same
+// tolerance as limitResetMs() in public/js/tasks.js and server/resume.js.
+function limitResetMs(v) {
+  if (v == null) return 0;
+  if (typeof v === 'number') return v < 1e12 ? v * 1000 : v;
+  const t = Date.parse(String(v));
+  return Number.isFinite(t) ? t : 0;
+}
 
 function defaultModel() {
   let ws = '';
@@ -366,6 +374,11 @@ export async function runPrompt({
   // generic "exited with code N" and discards the child's stderr — which is where
   // the ACTUAL reason lives (API overload, auth, model, …). Keep a bounded tail so a
   // failed turn can be diagnosed from the server log instead of being a total mystery.
+  const turnStart = Date.now();
+  // Did this turn actually break? A clean answer has nothing to resume, so the
+  // limit offer must never appear after one. Set by the is_error result branch
+  // and by the catch below — the two ways a turn can fail.
+  let turnFailed = false;
   let stderrTail = '';
   const captureStderr = (d) => {
     stderrTail += d;
@@ -578,6 +591,7 @@ export async function runPrompt({
         // finished answer. Emit the real reason so runs.js ends the run as 'error'
         // and the client offers Continue.
         if (message.is_error) {
+          turnFailed = true;
           const raw = String(message.result || (message.errors || []).join('; ') || '').trim()
             || 'The turn ended on an error before finishing.';
           console.error(`[claude] turn ended on an API error (session=${knownSession || 'new'}, status=${message.api_error_status ?? 'n/a'}): ${raw}`);
@@ -755,6 +769,7 @@ export async function runPrompt({
       if (waitUntil) armWait();
     }
   } catch (err) {
+    turnFailed = true;
     // A deliberate abort (client disconnected) isn't a real error — stay quiet.
     if (!(abortController && abortController.signal.aborted)) {
       const raw = err?.message || String(err);
@@ -770,6 +785,24 @@ export async function runPrompt({
     // Unconditional: a live timer here would keep firing (and could abort a NEXT
     // turn's controller) long after this one is over.
     clearWait();
+    // THREE conditions, and every one of them earned its place:
+    //   1. the turn actually FAILED — a clean answer has nothing to carry on;
+    //   2. the ACCOUNT's own window says 'rejected'. NOT overageStatus: that
+    //      field reports whether extra-usage credits may be spent, and it reads
+    //      'rejected' permanently on any account with extra usage switched off
+    //      (hasExtraUsageEnabled: false) — which is most of them. Treating it as
+    //      a stop signal puts the offer under every single prompt, at 27% of the
+    //      window;
+    //   3. the reading arrived during THIS turn (lastLimits is module-global and
+    //      outlives one) and the reset is still ahead of us.
+    const lim = lastLimits;
+    if (turnFailed && lim && lim.at >= turnStart
+        && lim.status === 'rejected'
+        && !(abortController && abortController.signal.aborted)) {
+      if (limitResetMs(lim.resetsAt) > Date.now()) {
+        onEvent({ type: 'limitPause', resetsAt: lim.resetsAt, kind: lim.kind || '', status: lim.status });
+      }
+    }
   }
   // How the turn ended, for the caller's end-reason line. Only the safety valve
   // has anything to report: everything else is either a normal finish, an error

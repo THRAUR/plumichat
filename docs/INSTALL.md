@@ -113,6 +113,15 @@ Verified end to end: clone, install, boot, create the owner account, use it.
   `brew install pandoc tmux`.
 - `shutdown` needs privileges, so the machine power controls will report a failure
   unless you have arranged for that. Nothing else is affected.
+- **Do not put `~/.claude` on an external volume.** If you sign the bundled CLI
+  into a Claude subscription rather than using an API key, macOS stores that login
+  in the **login Keychain** (service `Claude Code-credentials`), falling back to
+  `~/.claude/.credentials.json` when the Keychain refuses. Point `~/.claude` at a
+  drive that is unplugged — or at exFAT, which cannot hold mode `0600` — and
+  neither store is writable. `/login` then reports *"Login successful"* and the
+  very next message says *"Not logged in"*, under a header reading *"API Usage
+  Billing"* even on a Max account. Every symptom points away from the cause.
+  One command settles it: `test -d ~/.claude/ && echo ok || echo UNREACHABLE`.
 
 ### Windows
 
@@ -285,6 +294,21 @@ section 2. Then `npm rebuild node-pty` and restart.
 **`npm start` fails with `node: .env: not found`.**
 You are on Node older than 22.9, which lacks `--env-file-if-exists`. Either upgrade
 Node, or run `node server/index.js` directly, or just `touch .env`.
+
+**Signing in says "Login successful", then "Not logged in" on the next message.**
+The login cannot be persisted. On macOS that is almost always `~/.claude` pointing
+at an unmounted or exFAT volume — see the macOS notes in section 3; the same
+happens over SSH or in a daemon context where the login Keychain is not writable.
+The header will read "API Usage Billing" even on a subscription, which is the
+label shown when no credential is readable — not evidence of an API key.
+
+**The header says "API Usage Billing" but you are on Pro/Max.**
+Something outranks your subscription login. The order, highest first: cloud
+provider credentials (Bedrock/Vertex) → `ANTHROPIC_AUTH_TOKEN` →
+`ANTHROPIC_API_KEY` → an `apiKeyHelper` in a `settings.json` → your subscription.
+`/status` inside the CLI names the active source. Note that PlumiChat's terminal
+inherits the **server's** environment, so unsetting a variable in a fresh shell
+changes nothing until you restart the server from a clean one.
 
 **`git pull` says "local changes to package-lock.json would be overwritten".**
 `npm install` rewrites the lockfile on some npm versions, so your checkout differs

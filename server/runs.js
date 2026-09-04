@@ -272,7 +272,17 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     id,
     key: sessionId || id,
     project,
-    userId: userId || null,     // who started it — for per-user attach/stop checks
+    userId: userId || null,
+    // Everything needed to run this turn AGAIN, unchanged. server/resume.js
+    // re-issues it verbatim when a usage window reopens, so the continuation
+    // lands on the same project, model, effort and approval mode the person was
+    // actually working in — not on whatever the defaults happen to be hours
+    // later. Kept here because startRun's arguments are otherwise unrecoverable
+    // once the turn has ended.
+    spec: { project, cwd, sessionId: sessionId || null, model, effort,
+            fastMode: !!fastMode, context1m: !!context1m,
+            permissionMode: permissionMode || 'default',
+            confineHome: confineHome || null, userId: userId || null },     // who started it — for per-user attach/stop checks
     model: null,                // the real model the API reported for this turn
     modelEv: null,              // full model event (source: 'init'|'api', requested)
     sessionId: sessionId || null,

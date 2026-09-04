@@ -6,7 +6,7 @@ import { clockTime } from './render.js';
 import { factCard, openSheet, sheetActions, sheetButton, sheetNote, sheetOpenName, sheetSection } from './sheet.js';
 import { activeStreams, reattachTries, viewKey } from './state.js';
 import { currentTurnModel, currentTurnModelSrc, currentTurnRequested, fmtTokens, friendlyModel } from './stream.js';
-import { limitsState, setLimits, thinkingFor, windowUsage } from './tasks.js';
+import { limitResetMs, limitsState, setLimits, thinkingFor, windowUsage } from './tasks.js';
 
 /* ---------- Usage + account chip (audit F5) ----------
    Three facts that were previously invisible: where the account sits in its
@@ -43,15 +43,6 @@ export function limitPct(l) {
   if (left >= span) return 0;
   return Math.max(0, Math.min(100, Math.round(((span - left) / span) * 100)));
 }
-// resetsAt has been seen as both epoch seconds and epoch milliseconds; anything
-// that parses as a date is accepted, and anything that doesn't is simply not shown.
-export function limitResetMs(l) {
-  if (!l || l.resetsAt == null) return 0;
-  var v = l.resetsAt;
-  if (typeof v === "number") return v < 1e12 ? v * 1000 : v;
-  var t = Date.parse(String(v));
-  return Number.isFinite(t) ? t : 0;
-}
 export function limitResetText(l) {
   var ms = limitResetMs(l);
   if (!ms) return "";
@@ -75,7 +66,17 @@ export function renderUsageChip() {
   // (running || warning tone), so the chip vanished between turns and on a cold
   // load — which read as the feature being broken rather than idle. Only a client
   // that has genuinely never heard a usage figure hides it now.
-  if (!running && !tone && !limitsState) { usageChip.hidden = true; return; }
+  // Quiet unless it has something to say. This chip is a full-width rail directly
+  // above the composer, so an always-on version parks "5-hour window" under every
+  // answer — at 27% of the window that is three words of furniture reporting no
+  // news, and it reads as an alert that keeps firing for nothing.
+  //
+  // It was made always-on to stop it "vanishing between turns and looking
+  // broken". That worry is already answered elsewhere: renderDrawerUsage() runs
+  // on the line above and NEVER hides, so the sidebar always states the figure
+  // and the reset time. The rail is therefore free to appear only when it is
+  // live (model + thinking tokens during a turn) or actually warning.
+  if (!running && !tone) { usageChip.hidden = true; return; }
   var bits = [];
   if (running && currentTurnModel) bits.push({ cls: "uc-model", text: friendlyModel(currentTurnModel) });
   var think = thinkingFor(viewKey);
