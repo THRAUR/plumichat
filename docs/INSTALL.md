@@ -50,6 +50,9 @@ npm start
 
 Open **http://localhost:3002** and create the owner account.
 
+To update later, use `git pull && npm ci` — `npm ci` installs straight from the
+lockfile and will not leave local changes that block the next pull.
+
 If `npm install` warns about **node-pty**, that is fine — it is an *optional*
 dependency and you lose the terminal panel and nothing else. Two different warnings
 mean two different things:
@@ -280,6 +283,19 @@ section 2. Then `npm rebuild node-pty` and restart.
 **`npm start` fails with `node: .env: not found`.**
 You are on Node older than 22.9, which lacks `--env-file-if-exists`. Either upgrade
 Node, or run `node server/index.js` directly, or just `touch .env`.
+
+**`git pull` says "local changes to package-lock.json would be overwritten".**
+`npm install` rewrites the lockfile on some npm versions, so your checkout differs
+from the repo before you have changed anything. Discard it and pull:
+
+```bash
+git restore package-lock.json
+git pull
+npm ci          # installs exactly what the lockfile says, and never rewrites it
+```
+
+Use `npm ci` rather than `npm install` when you are just consuming the project;
+it is faster, reproducible, and avoids this every time you update.
 
 **Passkeys / notifications unavailable.**
 They need a secure context. Use `localhost`, or put HTTPS in front.
