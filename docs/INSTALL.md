@@ -16,7 +16,7 @@ what it could not find.
 
 | | Needed | Notes |
 |---|---|---|
-| **Node.js** | 22 or newer | `node --version`. There is no build step and no transpiler. |
+| **Node.js** | 22.9 or newer | `node --version`. There is no build step and no transpiler. |
 | **Anthropic access** | yes | An `ANTHROPIC_API_KEY`, or sign the bundled CLI into a Claude subscription. |
 | **git** | recommended | Needed for Operations and engine updates. |
 
@@ -50,9 +50,23 @@ npm start
 
 Open **http://localhost:3002** and create the owner account.
 
-If `npm install` warns that **node-pty** failed to build, that is fine and expected
-without build tools. It is an *optional* dependency: you lose the terminal panel and
-nothing else.
+If `npm install` warns about **node-pty**, that is fine — it is an *optional*
+dependency and you lose the terminal panel and nothing else. Two different warnings
+mean two different things:
+
+**"install scripts not yet covered by allowScripts"** — recent npm blocks packages
+from running build scripts by default, as supply-chain protection. `node-pty` is a
+native module, so without its build step it cannot load. Approve it if you want the
+terminal:
+
+```bash
+npm install-scripts approve node-pty   # then:
+npm rebuild node-pty
+```
+
+**A compile error** — you are missing build tools. See the table above
+(`build-essential` on Linux, `xcode-select --install` on macOS, VS Build Tools on
+Windows), then `npm rebuild node-pty`.
 
 ### What you should see
 
@@ -259,7 +273,13 @@ It is gated on a capability this machine lacks. Check the startup banner, or
 `GET /api/capabilities`, for the specific reason.
 
 **No terminal panel.**
-`node-pty` did not build. Install build tools and `npm rebuild node-pty`.
+`node-pty` did not build. Either npm blocked its install scripts
+(`npm install-scripts approve node-pty`) or you are missing build tools — see
+section 2. Then `npm rebuild node-pty` and restart.
+
+**`npm start` fails with `node: .env: not found`.**
+You are on Node older than 22.9, which lacks `--env-file-if-exists`. Either upgrade
+Node, or run `node server/index.js` directly, or just `touch .env`.
 
 **Passkeys / notifications unavailable.**
 They need a secure context. Use `localhost`, or put HTTPS in front.

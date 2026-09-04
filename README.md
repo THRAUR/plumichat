@@ -105,7 +105,7 @@ npm start
 Open **http://localhost:3002** and create the owner account. That is the whole
 setup — `.env` is optional and every value has a default.
 
-You need **Node 22+** and either an `ANTHROPIC_API_KEY` or the bundled CLI signed
+You need **Node 22.9+** and either an `ANTHROPIC_API_KEY` or the bundled CLI signed
 into a Claude subscription. Everything else is optional; PlumiChat prints what it
 could not find at startup:
 
