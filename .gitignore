@@ -1,0 +1,43 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Environment / secrets
+.env
+.env.*
+*.local
+secrets.*
+
+# Local configuration copied from the *.example.json templates
+apps.config.json
+ops-signals.json
+
+# Logs
+*.log
+logs/
+
+# Runtime data store (settings, members, ops tasks, patches, worktrees)
+data/
+
+# Dependencies. NO trailing slash: a bare `node_modules/` pattern matches a
+# directory only, and a node_modules SYMLINK (handy for local testing) is a file,
+# so it would sail straight past and get committed.
+node_modules
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+target/
+dist/
+build/
+
+# Misc
+*.tmp
+.cache/
+
+# Crash dumps (a killed node/chromium leaves these in the cwd)
+core
+core.*

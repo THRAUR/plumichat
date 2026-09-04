@@ -1,0 +1,25 @@
+{
+  "name": "PlumiChat",
+  "short_name": "PlumiChat",
+  "description": "Drive Claude Code from your phone — a mobile-friendly web chat onto a machine that is not in the room.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#141210",
+  "theme_color": "#141210",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/favicon-32.png", "sizes": "32x32", "type": "image/png" },
+    { "src": "/favicon-100.png", "sizes": "100x100", "type": "image/png" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/favicon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "launch_handler": { "client_mode": "navigate-existing" },
+  "shortcuts": [
+    { "name": "New chat", "url": "/?new=1" },
+    { "name": "Split view", "url": "/grid.html" },
+    { "name": "Operations", "url": "/operations.html" },
+    { "name": "Settings", "url": "/settings.html" }
+  ]
+}

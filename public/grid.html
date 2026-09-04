@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#141210" />
+<title>PlumiChat · Split view</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg?v=20260904c" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=20260904c" />
+<link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=20260904c" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260904c" />
+<!-- iOS/macOS snapshot the home-screen NAME from here (the manifest's short_name
+     is only read from 15.4 on), so it has to be stated as well as in the manifest. -->
+<meta name="apple-mobile-web-app-title" content="PlumiChat" />
+<link rel="manifest" href="/manifest.webmanifest?v=20260904c" />
+<!-- Load the theme controller + design tokens BEFORE first paint so the dashboard
+     matches the chat app (same data-theme + accent, shared via localStorage). -->
+<script src="/theme.js?v=20260904b"></script>
+<link rel="stylesheet" href="/plume.css?v=20260904b" />
+<link rel="stylesheet" href="/style.css?v=20260904b" />
+<!-- Shared helpers (public/ui.js) + the .ui-* classes this page uses for toasts.
+     ui.css is additive: it republishes the same tokens style.css already sets and
+     adds the accents style.css lacks, so loading both is safe and order-free. -->
+<link rel="stylesheet" href="/ui.css?v=20260904b" />
+<script src="/ui.js?v=20260902"></script>
+<style>
+  /* ---- Split-view board. You pick a fixed LAYOUT first (2/3/4 panes in a
+     chosen arrangement); each pane starts EMPTY and is filled by picking an
+     existing conversation or starting a new one in a project. The whole board
+     (layout + which conversation is in each pane) can be saved as a numbered
+     PROFILE on your account and re-loaded with one tap. Each filled pane is an
+     <iframe> running the chat app in embed mode — a complete, independent chat. ---- */
+  body.grid-page {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* Toolbar */
+  .gridbar {
+    flex: none;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 12px;
+    background: var(--bar-bg);
+    -webkit-backdrop-filter: saturate(1.4) blur(14px);
+    backdrop-filter: saturate(1.4) blur(14px);
+    border-bottom: 1px solid var(--line);
+    position: relative;
+    z-index: 10;
+  }
+  .gridbar-left, .gridbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .gridbar-right { flex: none; }
+  .gb-back {
+    display: grid; place-items: center;
+    width: 34px; height: 34px; flex: none;
+    border-radius: var(--r-md); color: var(--text);
+    border: 1px solid var(--line); background: var(--surface);
+    text-decoration: none;
+  }
+  .gb-back:hover { background: var(--surface-2); }
+  .gb-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: 0.02em; min-width: 0; white-space: nowrap; }
+  .gb-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+  .gb-sub { color: var(--muted); font-weight: 600; font-size: 13px; }
+  .gb-count { color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .gb-add {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 0; background: var(--accent); color: var(--on-accent);
+    font-family: inherit; font-weight: 650; font-size: 13.5px;
+    padding: 8px 13px; border-radius: var(--r-md);
+    transition: filter 0.12s ease;
+    position: relative;
+    cursor: pointer;
+  }
+  .gb-add svg { width: 15px; height: 15px; }
+  .gb-add:hover { filter: brightness(1.06); }
+  /* amber dot = the board differs from the loaded profile (unsaved changes) */
+  .gb-add.dirty::after {
+    content: ""; position: absolute; top: -3px; right: -3px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--warn); box-shadow: 0 0 0 2px var(--bar-bg);
+  }
+  .gb-ghost {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted);
+    font-family: inherit; font-weight: 600; font-size: 13px;
+    padding: 8px 12px; border-radius: var(--r-md);
+    transition: background 0.12s ease, color 0.12s ease;
+    cursor: pointer;
+  }
+  .gb-ghost svg { width: 15px; height: 15px; }
+  .gb-ghost:hover { background: var(--surface-2); color: var(--text); }
+
+  /* Numbered profile chips: tap to switch the whole board. */
+  .chips { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; width: 30px; height: 30px; border-radius: var(--r-md);
+    display: grid; place-items: center;
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted);
+    cursor: pointer; transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  }
+  .chip:hover { color: var(--text); border-color: var(--accent-line); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  /* Save menu */
+  .savewrap { position: relative; }
+  .save-menu {
+    position: absolute; top: calc(100% + 8px); right: 0;
+    min-width: 230px; max-width: 320px;
+    background: var(--panel-bg); border: 1px solid var(--line-strong);
+    border-radius: var(--r-md); box-shadow: var(--shadow-win);
+    padding: 6px; display: none; z-index: 30;
+  }
+  .savewrap.open .save-menu { display: block; }
+  .sm-item {
+    width: 100%; text-align: left; display: flex; align-items: center; gap: 8px;
+    background: transparent; border: 0; border-radius: var(--r-md); padding: 10px;
+    color: var(--text); font-family: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  }
+  .sm-item:hover { background: var(--surface-2); }
+  .sm-item svg { width: 15px; height: 15px; flex: none; color: var(--muted); }
+  .sm-item.danger, .sm-item.danger svg { color: var(--error); }
+  .sm-item.danger:hover { background: var(--error-dim); }
+  .sm-item .sm-ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sm-item:disabled { opacity: 0.45; cursor: default; }
+  .sm-item:disabled:hover { background: transparent; }
+  /* The server's limits, stated where the limit actually bites. */
+  .sm-note { padding: 8px 10px 4px; font-size: 11.5px; color: var(--faint); line-height: 1.45; border-top: 1px solid var(--line); margin-top: 4px; }
+
+  /* ---- The board: a fixed CSS-grid arrangement chosen from the layout picker. ---- */
+  .board {
+    flex: 1; min-height: 0;
+    display: grid; gap: 10px; padding: 10px;
+    background: var(--bg);
+  }
+  .board[data-layout="2h"] { grid-template-areas: "a b"; grid-template-columns: 1fr 1fr; }
+  .board[data-layout="2v"] { grid-template-areas: "a" "b"; grid-template-rows: 1fr 1fr; }
+  .board[data-layout="3t"] { grid-template-areas: "a a" "b c"; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  .board[data-layout="3b"] { grid-template-areas: "a b" "c c"; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  .board[data-layout="3c"] { grid-template-areas: "a b c"; grid-template-columns: 1fr 1fr 1fr; }
+  .board[data-layout="4"]  { grid-template-areas: "a b" "c d"; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+  .slot {
+    display: flex; flex-direction: column;
+    min-width: 0; min-height: 0;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md); overflow: hidden;
+    box-shadow: 0 1px 0 var(--line);
+  }
+  .slot.empty { border-style: dashed; background: transparent; box-shadow: none; }
+
+  /* Empty pane: one big tap target. */
+  .slot-add {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px;
+    background: transparent; border: 0; cursor: pointer;
+    font-family: inherit; color: var(--muted); padding: 20px;
+    transition: background 0.14s ease;
+  }
+  .slot-add:hover { background: var(--surface-2); }
+  .sa-plus {
+    width: 46px; height: 46px; border-radius: var(--r-md);
+    display: grid; place-items: center;
+    background: var(--accent-dim); color: var(--accent-text);
+  }
+  .sa-plus svg { width: 22px; height: 22px; }
+  .sa-t { font-size: 14.5px; font-weight: 650; color: var(--text); }
+  .sa-s { font-size: 12.5px; color: var(--muted); }
+
+  /* Filled pane chrome (same look as before). */
+  .pane-bar {
+    flex: none; height: 34px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 5px 0 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+  .pane-title {
+    flex: 1; min-width: 0;
+    font-size: 12.5px; font-weight: 600; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pane-x, .pane-mv, .pane-max {
+    flex: none; display: grid; place-items: center;
+    width: 26px; height: 26px; border-radius: var(--r-sm);
+    border: 0; background: transparent; color: var(--muted); cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .pane-x:hover, .pane-mv:hover, .pane-max:hover { background: var(--surface-3); color: var(--text); }
+  .pane-mv:disabled { opacity: 0.3; pointer-events: none; }
+  .pane-frame { flex: 1; width: 100%; border: 0; background: var(--bg); min-height: 0; }
+
+  /* Live status dot: pulses while the pane's agent is working; turns amber when
+     it's waiting for YOUR input (a permission prompt or a question). */
+  .pane-dot {
+    flex: none; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--faint); opacity: 0.35;
+    transition: background 0.2s ease, opacity 0.2s ease;
+  }
+  .slot.busy .pane-dot {
+    background: var(--accent); opacity: 1;
+    box-shadow: 0 0 0 3px var(--accent-dim);
+    animation: pane-pulse 1.3s ease-in-out infinite;
+  }
+  .slot.attention .pane-dot {
+    background: var(--warn); opacity: 1;
+    box-shadow: 0 0 0 3px var(--warn-dim);
+    animation: pane-pulse 0.9s ease-in-out infinite;
+  }
+  .slot.attention { border-color: rgba(224, 179, 74, 0.55); }
+  @keyframes pane-pulse { 50% { opacity: 0.45; } }
+
+  /* Maximize: one pane fills the whole board; the others stay alive but hidden
+     (display:none never reloads an iframe). */
+  .board.has-max { display: block; overflow: hidden; }
+  .board.has-max .slot { display: none; }
+  .board.has-max .slot.max { display: flex; width: 100%; height: 100%; }
+  .board.has-max .pane-mv { display: none; }
+  .pane-max .ic-shrink { display: none; }
+  .slot.max .pane-max .ic-shrink { display: block; }
+  .slot.max .pane-max .ic-grow { display: none; }
+
+  /* ---- Overlays (welcome / layout chooser / conversation picker) ---- */
+  .gv-scrim {
+    position: fixed; inset: 0; z-index: 80;
+    background: rgba(4, 5, 7, 0.6);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px;
+  }
+  .gv-scrim[hidden] { display: none; }
+  .gv-panel {
+    width: min(560px, 100%); max-height: min(80vh, 660px);
+    display: flex; flex-direction: column;
+    background: var(--panel-bg); border: 1px solid var(--line-strong);
+    border-radius: var(--r-win); box-shadow: var(--shadow-win);
+    padding: 18px;
+  }
+  .gv-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; color: var(--text); }
+  .gv-sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+  .gv-scroll { flex: 1; min-height: 0; overflow: auto; margin: 0 -6px; padding: 0 6px; }
+
+  .gv-list { display: flex; flex-direction: column; gap: 6px; }
+  .gv-row {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; text-align: left;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 10px 12px;
+    color: var(--text); font-family: inherit; cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .gv-row:hover { background: var(--surface-2); border-color: var(--line-strong); }
+  .gv-num {
+    flex: none; width: 26px; height: 26px; border-radius: var(--r-md);
+    display: grid; place-items: center;
+    font-size: 12.5px; font-weight: 700;
+    background: var(--accent-dim); color: var(--accent-text);
+  }
+  .gv-ic { flex: none; display: grid; place-items: center; width: 26px; color: var(--muted); }
+  .gv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .gv-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gv-info { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gv-row.gv-new .gv-name, .gv-row.gv-new .gv-ic { color: var(--accent-text); }
+  .gv-head { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 10px 2px 6px; }
+  .gv-none { padding: 12px 2px; color: var(--muted); font-size: 13px; }
+
+  .gv-actions { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; flex-wrap: wrap; }
+  .gv-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--text);
+    font-family: inherit; font-weight: 600; font-size: 13.5px;
+    padding: 9px 14px; border-radius: var(--r-md); cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .gv-btn:hover { background: var(--surface-2); }
+  .gv-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .gv-btn.primary:hover { filter: brightness(1.06); }
+
+  /* Layout chooser tiles */
+  .lt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .lt-tile {
+    display: flex; flex-direction: column; align-items: center; gap: 9px;
+    padding: 14px 8px 11px;
+    background: var(--surface); border: 1px solid var(--line-strong);
+    border-radius: var(--r-md); cursor: pointer; color: var(--muted);
+    font-family: inherit;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  .lt-tile:hover { border-color: var(--accent-line); background: var(--surface-2); color: var(--text); }
+  .lt-mini { display: grid; gap: 3px; width: 84px; height: 56px; }
+  .lt-cell { background: var(--accent-dim); border: 1px solid var(--accent-line); border-radius: var(--r-sm); min-width: 0; min-height: 0; }
+  .lt-name { font-size: 12px; font-weight: 600; }
+
+  /* Picker step-2 crumb */
+  .gv-crumb { display: flex; align-items: center; gap: 9px; margin: 0 0 12px; }
+  .gv-backbtn {
+    flex: none; width: 30px; height: 30px; border-radius: var(--r-md);
+    display: grid; place-items: center;
+    border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+    cursor: pointer;
+  }
+  .gv-backbtn:hover { background: var(--surface-2); color: var(--text); }
+  .gv-crumb-name { font-size: 15px; font-weight: 650; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Phone: the board becomes a horizontal, swipeable strip of full-height panes;
+     toolbar keeps chips + save reachable. */
+  @media (max-width: 899px) {
+    .gb-sub { display: none; }
+    .gb-ghost .gb-label { display: none; }
+    .board, .board[data-layout] {
+      display: flex; flex-direction: row; gap: 10px;
+      overflow-x: auto; overflow-y: hidden;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      scroll-padding: 10px;
+    }
+    .slot { flex: 0 0 92%; height: 100%; scroll-snap-align: center; }
+    .slot:only-child { flex-basis: 100%; }
+    .board.has-max, .board.has-max[data-layout] { display: block; }
+    .lt-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .board { scroll-behavior: auto; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     PLUME — Split view.
+     The board is a desk with several windows open on it, which is as close
+     to Plume's own metaphor as this product gets: each pane keeps a title
+     bar with drag stripes, and the picker in front of them is a window too.
+     ══════════════════════════════════════════════════════════════════════ */
+  .gb-brand, .gv-title, .pane-title {
+    font-family: var(--font-display); font-weight: 700; letter-spacing: 0.01em;
+  }
+  .gb-brand { letter-spacing: 0.03em; font-size: 14px; }
+  .gb-dot {
+    width: 8px; height: 14px; border-radius: 0;
+    background: var(--accent); box-shadow: none;
+  }
+  /* Three beats, then solid — see the note beside the same rule in style.css. */
+  @media (prefers-reduced-motion: no-preference) {
+    .gb-dot { animation: pl-caret 1.06s steps(1, end) 3 both; }
+    @keyframes pl-caret {
+      0%, 55%   { opacity: 1; }
+      56%, 99%  { opacity: 0; }
+      100%      { opacity: 1; }
+    }
+  }
+  .gb-sub, .gb-count { font-family: var(--font-label); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .gb-back, .gb-add, .gb-ghost { border-radius: var(--r-sm); }
+  .gb-add { box-shadow: var(--shadow-sm); }
+  .gb-add:active { transform: translate(2px, 2px); box-shadow: none; }
+
+  /* Each pane is a window: a striped drag bar with its name knocked out of it. */
+  .slot {
+    border-radius: var(--r-win) var(--r-win) var(--r-md) var(--r-md);
+    border-color: var(--line-strong);
+    box-shadow: var(--shadow-win);
+    overflow: hidden;
+  }
+  .slot.empty { box-shadow: none; }
+  .pane-bar {
+    position: relative;
+    background: var(--surface-2);
+    background-image: repeating-linear-gradient(to bottom, var(--line-strong) 0 1px, transparent 1px 3px);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 15px;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  .pane-bar > * { position: relative; background: var(--surface-2); }
+  .pane-title { font-size: 12.5px; padding: 2px 6px; }
+  .pane-x, .pane-mv, .pane-max { border-radius: var(--r-sm); }
+  .pane-dot { border-radius: 0; }
+
+  /* The layout picker is a window on top of the desk. */
+  .gv-panel {
+    border-radius: var(--r-win) var(--r-win) var(--r-md) var(--r-md);
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow-win);
+  }
+  .gv-title { font-size: 18px; }
+  .gv-head { font-family: var(--font-label); font-size: 10px; font-weight: 400; letter-spacing: 0.09em; }
+  .gv-row, .gv-btn, .gv-backbtn { border-radius: var(--r-sm); }
+  .gv-row { border-color: var(--line-strong); }
+  .gv-row:hover { border-color: var(--accent); }
+  .gv-num { font-family: var(--font-label); font-size: 10px; }
+  .gv-btn { box-shadow: var(--shadow-sm); }
+  .gv-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+
+</style>
+</head>
+<body class="grid-page">
+  <header class="gridbar">
+    <div class="gridbar-left">
+      <a class="gb-back" href="/" title="Back to single chat" aria-label="Back to single chat">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+      </a>
+      <div class="gb-brand"><span class="gb-dot"></span>PlumiChat <span class="gb-sub">Split view</span></div>
+      <span class="gb-count" id="gbCount" aria-live="polite"></span>
+    </div>
+    <div class="gridbar-right">
+      <div class="chips" id="chips" role="group" aria-label="Saved profiles"></div>
+      <div class="savewrap" id="saveWrap">
+        <button class="gb-add" id="saveBtn" type="button" aria-haspopup="menu" aria-expanded="false" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          Save
+        </button>
+        <div class="save-menu" id="saveMenu" role="menu" aria-label="Profile actions"></div>
+      </div>
+      <button class="gb-ghost" id="layoutBtn" type="button" title="Change layout" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        <span class="gb-label">Layout</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="board" id="board"></main>
+
+  <!-- Welcome: shown when you already have profiles — load one or start over. -->
+  <div class="gv-scrim" id="welcome" hidden>
+    <div class="gv-panel" role="dialog" aria-modal="true" aria-label="Split view profiles">
+      <h2 class="gv-title">Split view</h2>
+      <p class="gv-sub">Load one of your saved profiles, or start a new board from scratch.</p>
+      <div class="gv-scroll"><div class="gv-list" id="welcomeList"></div></div>
+      <div class="gv-actions">
+        <button class="gv-btn primary" id="welcomeFresh" type="button">Start fresh</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layout chooser -->
+  <div class="gv-scrim" id="chooser" hidden>
+    <div class="gv-panel" role="dialog" aria-modal="true" aria-label="Choose a layout">
+      <h2 class="gv-title">Choose your layout</h2>
+      <p class="gv-sub">How many chats, and how they're arranged. You'll fill each pane next.</p>
+      <div class="gv-scroll"><div class="lt-grid" id="ltGrid"></div></div>
+      <div class="gv-actions" id="chooserActions" hidden>
+        <button class="gv-btn" id="chooserCancel" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Conversation picker: project → conversation (or new chat) -->
+  <div class="gv-scrim" id="picker" hidden>
+    <div class="gv-panel" role="dialog" aria-modal="true" aria-label="Add a conversation">
+      <div id="pickStep1">
+        <h2 class="gv-title">Add a conversation</h2>
+        <p class="gv-sub">First, choose a project.</p>
+      </div>
+      <div class="gv-crumb" id="pickStep2" hidden>
+        <button class="gv-backbtn" id="pickBack" type="button" aria-label="Back to projects">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <span class="gv-crumb-name" id="pickProjName"></span>
+      </div>
+      <div class="gv-scroll"><div class="gv-list" id="pickList"></div></div>
+      <div class="gv-actions">
+        <button class="gv-btn" id="pickCancel" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+    var ORIGIN = location.origin;
+    var STORE = "plumi.grid.v2";
+    var UI = window.PlumiUI;
+    var toast = UI.toast;   // one escaping toast, shared with settings + operations
+
+    /* The server's limits on a saved profile (sanitizeGridProfiles in
+       server/index.js). They used to be invisible: a 13th profile was rejected
+       with an alert saying nothing useful, and a 7th pane was silently sliced
+       away. Keep these in step with the server — they are surfaced, not enforced,
+       here; the server is still the authority. */
+    var MAX_PROFILES = 12;
+    var MAX_SLOTS = 6;
+
+    /* The fixed layouts. `areas` mirrors the CSS grid-template so the chooser
+       can draw a faithful mini-diagram of each option. */
+    var AREA = ["a", "b", "c", "d"];
+    var LAYOUTS = {
+      "2h": { slots: 2, label: "2 side by side", areas: '"a b"', cols: "1fr 1fr", rows: "1fr" },
+      "2v": { slots: 2, label: "2 stacked",      areas: '"a" "b"', cols: "1fr", rows: "1fr 1fr" },
+      "3t": { slots: 3, label: "1 + 2 below",    areas: '"a a" "b c"', cols: "1fr 1fr", rows: "1fr 1fr" },
+      "3b": { slots: 3, label: "2 + 1 below",    areas: '"a b" "c c"', cols: "1fr 1fr", rows: "1fr 1fr" },
+      "3c": { slots: 3, label: "3 columns",      areas: '"a b c"', cols: "1fr 1fr 1fr", rows: "1fr" },
+      "4":  { slots: 4, label: "4-pane grid",    areas: '"a b" "c d"', cols: "1fr 1fr", rows: "1fr 1fr" }
+    };
+    var LAYOUT_ORDER = ["2h", "2v", "3t", "3b", "3c", "4"];
+
+    var board = document.getElementById("board");
+    var gbCount = document.getElementById("gbCount");
+    var chipsEl = document.getElementById("chips");
+    var saveWrap = document.getElementById("saveWrap");
+    var saveBtn = document.getElementById("saveBtn");
+    var saveMenu = document.getElementById("saveMenu");
+    var layoutBtn = document.getElementById("layoutBtn");
+    var welcome = document.getElementById("welcome");
+    var welcomeList = document.getElementById("welcomeList");
+    var welcomeFresh = document.getElementById("welcomeFresh");
+    var chooser = document.getElementById("chooser");
+    var ltGrid = document.getElementById("ltGrid");
+    var chooserActions = document.getElementById("chooserActions");
+    var chooserCancel = document.getElementById("chooserCancel");
+    var picker = document.getElementById("picker");
+    var pickStep1 = document.getElementById("pickStep1");
+    var pickStep2 = document.getElementById("pickStep2");
+    var pickProjName = document.getElementById("pickProjName");
+    var pickList = document.getElementById("pickList");
+    var pickBack = document.getElementById("pickBack");
+    var pickCancel = document.getElementById("pickCancel");
+
+    var projects = [];    // [{ name, path }]
+    var profiles = [];    // [{ id, name, layout, slots: [{ project, conv }] }] — account-level
+    var layout = "";      // active layout id ("" = no board yet)
+    var slots = [];       // [{ id, project, conv }] — project "" = empty slot
+    var slotEls = [];     // DOM element per slot, parallel to `slots`
+    var activeId = "";    // loaded profile id ("" = scratch board)
+    var maxId = "";       // maximized slot id
+
+    var X_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+    var LEFT_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+    var RIGHT_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+    var GROW_ICON = '<svg class="ic-grow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>';
+    var SHRINK_ICON = '<svg class="ic-shrink" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>';
+    var PLUS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+    var PLAY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+
+    function uid() {
+      try { if (window.crypto && crypto.randomUUID) return "p-" + crypto.randomUUID().slice(0, 8); } catch (e) {}
+      return "p-" + Math.random().toString(36).slice(2, 10);
+    }
+    function hasContent(s) { return !!(s && (s.project || s.conv)); }
+    function emptySlot() { return { id: uid(), project: "", conv: "" }; }
+    function slotIdx(id) { for (var i = 0; i < slots.length; i++) { if (slots[i].id === id) return i; } return -1; }
+    function profById(id) { for (var i = 0; i < profiles.length; i++) { if (profiles[i].id === id) return profiles[i]; } return null; }
+    function ago(ms) {
+      if (!ms) return "";
+      var s = (Date.now() - ms) / 1000;
+      if (s < 60) return "just now";
+      if (s < 3600) return Math.floor(s / 60) + "m ago";
+      if (s < 86400) return Math.floor(s / 3600) + "h ago";
+      if (s < 604800) return Math.floor(s / 86400) + "d ago";
+      try { return new Date(ms).toLocaleDateString(); } catch (e) { return ""; }
+    }
+    function api(url, opts) {
+      return fetch(url, opts).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; });
+      });
+    }
+
+    /* ---------- Board persistence (this device resumes where it left off) ---------- */
+    function saveBoard() {
+      try {
+        localStorage.setItem(STORE, JSON.stringify({
+          layout: layout, active: activeId,
+          slots: slots.map(function (s) { return { id: s.id, project: s.project || "", conv: s.conv || "" }; })
+        }));
+      } catch (e) {}
+    }
+    function loadBoard() {
+      try {
+        var d = JSON.parse(localStorage.getItem(STORE) || "null");
+        if (!d || !LAYOUTS[d.layout] || !Array.isArray(d.slots)) return false;
+        layout = d.layout;
+        activeId = typeof d.active === "string" ? d.active : "";
+        var n = LAYOUTS[layout].slots;
+        slots = d.slots.slice(0, n).map(function (s) {
+          return { id: (s && s.id) || uid(), project: (s && s.project) || "", conv: (s && s.conv) || "" };
+        });
+        while (slots.length < n) slots.push(emptySlot());
+        return true;
+      } catch (e) { return false; }
+    }
+
+    // Each pane namespaces its UI prefs as "plumi.pref.<key>:<paneId>" — clear
+    // them when a pane is cleared/replaced so localStorage doesn't accumulate.
+    function cleanupPrefs(id) {
+      try {
+        var suffix = ":" + id, rm = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf("plumi.pref.") === 0 && k.length > suffix.length && k.slice(-suffix.length) === suffix) rm.push(k);
+        }
+        rm.forEach(function (k) { localStorage.removeItem(k); });
+      } catch (e) {}
+    }
+
+    /* ---------- Board rendering ---------- */
+    function frameSrc(s) {
+      var q = "embed=1&pane=" + encodeURIComponent(s.id);
+      if (s.project) q += "&project=" + encodeURIComponent(s.project);
+      if (s.conv) q += "&c=" + encodeURIComponent(s.conv);
+      return "/?" + q;
+    }
+
+    function buildSlot(s, i) {
+      var sec = document.createElement("section");
+      sec.className = "slot";
+      sec.dataset.id = s.id;
+      sec.style.gridArea = AREA[i];
+      sec.style.order = i;
+      if (hasContent(s)) buildPane(sec, s); else buildEmpty(sec, s);
+      return sec;
+    }
+
+    function buildEmpty(sec, s) {
+      sec.classList.add("empty");
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "slot-add";
+      b.setAttribute("aria-label", "Add a conversation to this pane");
+      var plus = document.createElement("span"); plus.className = "sa-plus"; plus.innerHTML = PLUS_ICON;
+      var t = document.createElement("span"); t.className = "sa-t"; t.textContent = "Add a conversation";
+      var sub = document.createElement("span"); sub.className = "sa-s"; sub.textContent = "Pick an existing chat or start a new one";
+      b.appendChild(plus); b.appendChild(t); b.appendChild(sub);
+      b.addEventListener("click", function () { openPicker(s.id); });
+      sec.appendChild(b);
+    }
+
+    function buildPane(sec, s) {
+      var bar = document.createElement("div");
+      bar.className = "pane-bar";
+      var dot = document.createElement("span");
+      dot.className = "pane-dot";
+      var title = document.createElement("span");
+      title.className = "pane-title";
+      title.textContent = s.project || "New chat";
+
+      var mvL = document.createElement("button");
+      mvL.type = "button"; mvL.className = "pane-mv";
+      mvL.setAttribute("aria-label", "Swap with the previous pane"); mvL.title = "Move back";
+      mvL.innerHTML = LEFT_ICON;
+      mvL.addEventListener("click", function () { swapSlot(s.id, -1); });
+      var mvR = document.createElement("button");
+      mvR.type = "button"; mvR.className = "pane-mv";
+      mvR.setAttribute("aria-label", "Swap with the next pane"); mvR.title = "Move forward";
+      mvR.innerHTML = RIGHT_ICON;
+      mvR.addEventListener("click", function () { swapSlot(s.id, 1); });
+
+      var mx = document.createElement("button");
+      mx.type = "button"; mx.className = "pane-max";
+      mx.setAttribute("aria-label", "Maximize this chat"); mx.title = "Maximize";
+      mx.innerHTML = GROW_ICON + SHRINK_ICON;
+      mx.addEventListener("click", function () { toggleMax(s.id); });
+
+      var x = document.createElement("button");
+      x.type = "button"; x.className = "pane-x";
+      x.setAttribute("aria-label", "Clear this pane"); x.title = "Clear pane";
+      x.innerHTML = X_ICON;
+      x.addEventListener("click", function () { clearSlot(s.id); });
+
+      bar.appendChild(dot); bar.appendChild(title);
+      bar.appendChild(mvL); bar.appendChild(mvR); bar.appendChild(mx); bar.appendChild(x);
+
+      var f = document.createElement("iframe");
+      f.className = "pane-frame";
+      f.title = "Chat" + (s.project ? " — " + s.project : "");
+      f.setAttribute("allow", "microphone; clipboard-write");
+      f.src = frameSrc(s);
+
+      sec.appendChild(bar); sec.appendChild(f);
+      sec._title = title;
+      sec._mvL = mvL; sec._mvR = mvR;
+    }
+
+    function render() {
+      maxId = "";
+      board.classList.remove("has-max");
+      board.dataset.layout = layout;
+      board.innerHTML = "";
+      slotEls = [];
+      slots.forEach(function (s, i) {
+        var el = buildSlot(s, i);
+        slotEls.push(el);
+        board.appendChild(el);
+      });
+      refreshMoveButtons();
+      reflectBar();
+    }
+
+    function rebuildSlot(id) {
+      var i = slotIdx(id);
+      if (i < 0 || !slotEls[i]) return;
+      var fresh = buildSlot(slots[i], i);
+      board.replaceChild(fresh, slotEls[i]);
+      slotEls[i] = fresh;
+      refreshMoveButtons();
+      reflectBar();
+    }
+
+    function refreshMoveButtons() {
+      slotEls.forEach(function (el, i) {
+        if (el._mvL) el._mvL.disabled = (i === 0);
+        if (el._mvR) el._mvR.disabled = (i === slots.length - 1);
+      });
+    }
+
+    /* Swap CONTENT positions without touching the DOM order — panes keep their
+       iframes alive; only the grid-area / flex-order they occupy changes. */
+    function swapSlot(id, dir) {
+      var i = slotIdx(id), j = i + dir;
+      if (i < 0 || j < 0 || j >= slots.length) return;
+      var ts = slots[i]; slots[i] = slots[j]; slots[j] = ts;
+      var te = slotEls[i]; slotEls[i] = slotEls[j]; slotEls[j] = te;
+      [i, j].forEach(function (k) {
+        slotEls[k].style.gridArea = AREA[k];
+        slotEls[k].style.order = k;
+      });
+      refreshMoveButtons();
+      saveBoard(); reflectBar();
+    }
+
+    function toggleMax(id) {
+      var i = slotIdx(id);
+      if (i < 0) return;
+      var sec = slotEls[i];
+      var wasMax = sec.classList.contains("max");
+      slotEls.forEach(function (el) { el.classList.remove("max"); });
+      if (wasMax) {
+        board.classList.remove("has-max"); maxId = "";
+      } else {
+        sec.classList.add("max"); board.classList.add("has-max"); maxId = id;
+      }
+      slotEls.forEach(function (el) {
+        var b = el.querySelector(".pane-max");
+        if (!b) return;
+        var on = el.classList.contains("max");
+        b.title = on ? "Restore" : "Maximize";
+        b.setAttribute("aria-label", on ? "Restore this chat to the board" : "Maximize this chat");
+      });
+    }
+
+    function clearSlot(id) {
+      var i = slotIdx(id);
+      if (i < 0) return;
+      if (maxId === id) toggleMax(id);   // leave maximize before the pane vanishes
+      cleanupPrefs(id);
+      slots[i] = emptySlot();            // fresh id so old per-pane prefs never leak in
+      var fresh = buildSlot(slots[i], i);
+      board.replaceChild(fresh, slotEls[i]);
+      slotEls[i] = fresh;
+      refreshMoveButtons();
+      saveBoard(); reflectBar();
+    }
+
+    function fillSlot(id, project, conv) {
+      var i = slotIdx(id);
+      if (i < 0) return;
+      slots[i].project = project || "";
+      slots[i].conv = conv || "";
+      saveBoard();
+      rebuildSlot(id);
+    }
+
+    /* ---------- Toolbar state ---------- */
+    function captureSlots() { return slots.map(function (s) { return { project: s.project || "", conv: s.conv || "" }; }); }
+    function shapeOf(l, sl) { return JSON.stringify({ l: l, s: sl.map(function (s) { return [s.project || "", s.conv || ""]; }) }); }
+    function isDirty() {
+      if (!layout) return false;
+      var p = profById(activeId);
+      if (!p) return slots.some(hasContent);           // scratch board with content
+      return shapeOf(p.layout, p.slots) !== shapeOf(layout, captureSlots());
+    }
+
+    function reflectBar() {
+      var filled = slots.filter(hasContent).length;
+      // "2/4 chats · 3/12 profiles" — the second half is the cap you can actually
+      // hit, so it appears as soon as anything is saved.
+      var bits = [];
+      if (layout) bits.push(filled + "/" + slots.length + " chats");
+      if (profiles.length) bits.push(profiles.length + "/" + MAX_PROFILES + " profiles");
+      gbCount.textContent = bits.join(" · ");
+      saveBtn.hidden = !layout;
+      layoutBtn.hidden = !layout;
+      saveBtn.classList.toggle("dirty", isDirty());
+      renderChips();
+    }
+
+    function renderChips() {
+      chipsEl.innerHTML = "";
+      profiles.forEach(function (p, i) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "chip" + (p.id === activeId ? " on" : "");
+        b.textContent = String(i + 1);
+        b.title = p.name;
+        b.setAttribute("aria-label", "Load profile " + (i + 1) + ": " + p.name);
+        b.addEventListener("click", function () {
+          if (p.id === activeId && !isDirty()) return;
+          if (isDirty() && !confirm("Switch profiles? Unsaved changes to this board will be lost (your conversations are safe).")) return;
+          applyProfile(p);
+        });
+        chipsEl.appendChild(b);
+      });
+    }
+
+    /* ---------- Profiles (account-level, saved on the server) ----------
+       Every mutation here used to change `profiles` FIRST and PUT afterwards, so a
+       rejected save (over the cap, offline, a 401) left a chip on the toolbar that
+       did not exist on the server and vanished at the next reload. Now the local
+       array is only ever replaced by what the server echoes back, and a failure
+       restores exactly what was there before. */
+    function saveProfiles(next, activeAfter) {
+      var prevProfiles = profiles, prevActive = activeId;
+      return api("/api/grid/profiles", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profiles: next })
+      }).then(function (res) {
+        if (!res.ok) throw new Error((res.d && res.d.error) || ("Couldn't save (" + "server said no" + ")"));
+        // The server sanitizes (caps the list, trims names, slices slots) — take
+        // ITS version, not ours, so the toolbar shows what is actually stored.
+        profiles = (res.d && res.d.profiles) || next;
+        if (activeAfter !== undefined) activeId = activeAfter;
+        saveBoard(); reflectBar();
+        return true;
+      }).catch(function (err) {
+        profiles = prevProfiles; activeId = prevActive;
+        reflectBar();
+        toast("bad", (err && err.message) || "Couldn't save the profile");
+        return false;
+      });
+    }
+
+    function suggestName() {
+      var names = slots.filter(hasContent).map(function (s) { return s.project || "New"; });
+      var uniq = names.filter(function (n, i) { return names.indexOf(n) === i; });
+      var base = uniq.slice(0, 2).join(" + ");
+      if (uniq.length > 2) base += " +" + (uniq.length - 2);
+      return base || ("Profile " + (profiles.length + 1));
+    }
+    // A shallow copy with one field replaced — used to build the CANDIDATE list
+    // without touching the live one, so a rejected save has nothing to undo.
+    function withField(p, key, value) {
+      var out = { id: p.id, name: p.name, layout: p.layout, slots: p.slots };
+      out[key] = value;
+      return out;
+    }
+    function createProfile() {
+      if (profiles.length >= MAX_PROFILES) {
+        toast("bad", "You already have " + MAX_PROFILES + " profiles — delete one before saving another.");
+        return;
+      }
+      var name = "";
+      try { name = (window.prompt("Name this profile", suggestName()) || "").trim(); } catch (e) {}
+      if (!name) return;
+      var p = { id: "pr-" + uid().slice(2), name: name, layout: layout, slots: captureSlots() };
+      saveProfiles(profiles.concat([p]), p.id).then(function (ok) {
+        if (ok) toast("ok", 'Saved "' + p.name + '"');
+      });
+    }
+    function updateActive() {
+      var p = profById(activeId);
+      if (!p) return;
+      var slotsNow = captureSlots();
+      var next = profiles.map(function (x) {
+        if (x.id !== p.id) return x;
+        var y = withField(x, "layout", layout);
+        y.slots = slotsNow;
+        return y;
+      });
+      saveProfiles(next).then(function (ok) { if (ok) toast("ok", 'Updated "' + p.name + '"'); });
+    }
+    function renameActive() {
+      var p = profById(activeId);
+      if (!p) return;
+      var name = "";
+      try { name = (window.prompt("Rename this profile", p.name) || "").trim(); } catch (e) {}
+      if (!name || name === p.name) return;
+      var next = profiles.map(function (x) { return x.id === p.id ? withField(x, "name", name) : x; });
+      saveProfiles(next).then(function (ok) { if (ok) toast("ok", "Renamed"); });
+    }
+    function deleteActive() {
+      var p = profById(activeId);
+      if (!p) return;
+      if (!confirm('Delete profile "' + p.name + '"? The conversations themselves are kept.')) return;
+      var next = profiles.filter(function (x) { return x.id !== p.id; });
+      // The board itself stays exactly as it is — deleting the profile just makes
+      // it a scratch board again, which is why activeId goes to "".
+      saveProfiles(next, "").then(function (ok) { if (ok) toast("info", 'Deleted "' + p.name + '"'); });
+    }
+
+    function applyProfile(p) {
+      layout = p.layout;
+      var n = LAYOUTS[layout].slots;
+      // Stable per-profile slot ids so each pane's own prefs survive switching.
+      slots = (p.slots || []).slice(0, n).map(function (s, i) {
+        return { id: p.id + "-" + i, project: (s && s.project) || "", conv: (s && s.conv) || "" };
+      });
+      while (slots.length < n) slots.push({ id: p.id + "-" + slots.length, project: "", conv: "" });
+      activeId = p.id;
+      saveBoard();
+      render();
+    }
+
+    /* ---------- Save menu ---------- */
+    function smItem(label, fn, danger, icon) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "sm-item" + (danger ? " danger" : "");
+      b.innerHTML = (icon || "") + '<span class="sm-ell"></span>';
+      b.querySelector(".sm-ell").textContent = label;
+      b.addEventListener("click", function () { closeSaveMenu(); fn(); });
+      return b;
+    }
+    function openSaveMenu() {
+      var p = profById(activeId);
+      if (!p) { createProfile(); return; }   // scratch board: save = create, no menu needed
+      saveMenu.innerHTML = "";
+      saveMenu.appendChild(smItem('Update "' + p.name + '"', updateActive));
+      var full = profiles.length >= MAX_PROFILES;
+      var addNew = smItem(full ? "Save as new profile (limit reached)" : "Save as new profile", createProfile);
+      addNew.disabled = full;
+      saveMenu.appendChild(addNew);
+      saveMenu.appendChild(smItem("Rename…", renameActive));
+      saveMenu.appendChild(smItem("Delete…", deleteActive, true, X_ICON));
+      var note = document.createElement("div");
+      note.className = "sm-note";
+      note.textContent = "Up to " + MAX_PROFILES + " profiles, " + MAX_SLOTS + " panes saved per profile.";
+      saveMenu.appendChild(note);
+      saveWrap.classList.add("open");
+      saveBtn.setAttribute("aria-expanded", "true");
+    }
+    function closeSaveMenu() { saveWrap.classList.remove("open"); saveBtn.setAttribute("aria-expanded", "false"); }
+    saveBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      saveWrap.classList.contains("open") ? closeSaveMenu() : openSaveMenu();
+    });
+    document.addEventListener("click", function (e) { if (!saveWrap.contains(e.target)) closeSaveMenu(); });
+
+    /* ---------- Layout chooser ---------- */
+    function buildChooser() {
+      ltGrid.innerHTML = "";
+      LAYOUT_ORDER.forEach(function (id) {
+        var def = LAYOUTS[id];
+        var tile = document.createElement("button");
+        tile.type = "button"; tile.className = "lt-tile";
+        var mini = document.createElement("span");
+        mini.className = "lt-mini";
+        mini.style.gridTemplateAreas = def.areas;
+        mini.style.gridTemplateColumns = def.cols;
+        mini.style.gridTemplateRows = def.rows;
+        for (var i = 0; i < def.slots; i++) {
+          var c = document.createElement("span");
+          c.className = "lt-cell";
+          c.style.gridArea = AREA[i];
+          mini.appendChild(c);
+        }
+        var name = document.createElement("span");
+        name.className = "lt-name"; name.textContent = def.label;
+        tile.appendChild(mini); tile.appendChild(name);
+        tile.addEventListener("click", function () { chooseLayout(id); });
+        ltGrid.appendChild(tile);
+      });
+    }
+    function openChooser() {
+      buildChooser();
+      chooserActions.hidden = !layout;   // no board yet → you must pick one
+      chooser.hidden = false;
+    }
+    function closeChooser() { chooser.hidden = true; }
+    chooserCancel.addEventListener("click", closeChooser);
+
+    function chooseLayout(id) {
+      var n = LAYOUTS[id].slots;
+      if (!layout) {
+        // Fresh board.
+        layout = id;
+        activeId = "";
+        slots = [];
+        while (slots.length < n) slots.push(emptySlot());
+      } else {
+        // Re-shape the existing board: keep filled panes (in order), drop extras.
+        var keep = slots.filter(hasContent);
+        var dropped = keep.length - n;
+        if (dropped > 0 && !confirm("The new layout has fewer panes — " + dropped + " chat pane" + (dropped === 1 ? "" : "s") + " will be closed here (the conversations themselves are kept). Continue?")) return;
+        slots.filter(function (s) { return !hasContent(s); }).forEach(function (s) { cleanupPrefs(s.id); });
+        keep.slice(n).forEach(function (s) { cleanupPrefs(s.id); });
+        slots = keep.slice(0, n);
+        while (slots.length < n) slots.push(emptySlot());
+        layout = id;
+      }
+      saveBoard();
+      render();
+      closeChooser();
+    }
+    layoutBtn.addEventListener("click", openChooser);
+
+    /* ---------- Welcome (existing profiles): load one or start over ---------- */
+    function welcomeRow(numText, name, info, onPick, iconHtml) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "gv-row";
+      var badge;
+      if (iconHtml) { badge = document.createElement("span"); badge.className = "gv-ic"; badge.innerHTML = iconHtml; }
+      else { badge = document.createElement("span"); badge.className = "gv-num"; badge.textContent = numText; }
+      var main = document.createElement("span"); main.className = "gv-main";
+      var nm = document.createElement("span"); nm.className = "gv-name"; nm.textContent = name;
+      var inf = document.createElement("span"); inf.className = "gv-info"; inf.textContent = info;
+      main.appendChild(nm); main.appendChild(inf);
+      b.appendChild(badge); b.appendChild(main);
+      b.addEventListener("click", onPick);
+      return b;
+    }
+    function openWelcome() {
+      welcomeList.innerHTML = "";
+      if (layout) {
+        var filled = slots.filter(hasContent).length;
+        welcomeList.appendChild(welcomeRow("", "Continue where you left off",
+          LAYOUTS[layout].label + " · " + filled + " chat" + (filled === 1 ? "" : "s"),
+          function () { welcome.hidden = true; }, PLAY_ICON));
+      }
+      if (profiles.length) {
+        var head = document.createElement("div"); head.className = "gv-head"; head.textContent = "Your profiles";
+        welcomeList.appendChild(head);
+        profiles.forEach(function (p, i) {
+          var cnt = (p.slots || []).filter(function (s) { return s && (s.project || s.conv); }).length;
+          welcomeList.appendChild(welcomeRow(String(i + 1), p.name,
+            (LAYOUTS[p.layout] ? LAYOUTS[p.layout].label : p.layout) + " · " + cnt + " chat" + (cnt === 1 ? "" : "s"),
+            function () { welcome.hidden = true; applyProfile(p); }));
+        });
+      }
+      welcome.hidden = false;
+    }
+    welcomeFresh.addEventListener("click", function () {
+      welcome.hidden = true;
+      if (layout) {
+        // Starting over: drop the current board entirely.
+        slots.forEach(function (s) { cleanupPrefs(s.id); });
+        layout = ""; slots = []; slotEls = []; activeId = "";
+        board.innerHTML = ""; board.removeAttribute("data-layout");
+        saveBoard(); reflectBar();
+      }
+      openChooser();
+    });
+
+    /* ---------- Conversation picker (per empty pane) ---------- */
+    var pickSlotId = "";
+    function openPicker(slotId) {
+      pickSlotId = slotId;
+      showPickProjects();
+      picker.hidden = false;
+    }
+    function closePicker() { picker.hidden = true; pickSlotId = ""; }
+    pickCancel.addEventListener("click", closePicker);
+    pickBack.addEventListener("click", showPickProjects);
+
+    function showPickProjects() {
+      pickStep1.hidden = false;
+      pickStep2.hidden = true;
+      pickList.innerHTML = "";
+      if (!projects.length) {
+        var none = document.createElement("div"); none.className = "gv-none";
+        none.textContent = "No projects found.";
+        pickList.appendChild(none);
+        return;
+      }
+      projects.forEach(function (pr) {
+        var row = welcomeRow("", pr.name, pr.path || "", function () { showPickConvs(pr); },
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>');
+        pickList.appendChild(row);
+      });
+    }
+
+    function showPickConvs(pr) {
+      pickStep1.hidden = true;
+      pickStep2.hidden = false;
+      pickProjName.textContent = pr.name;
+      pickList.innerHTML = "";
+
+      var fresh = welcomeRow("", "Start a new conversation", "A blank chat in " + pr.name,
+        function () { fillSlot(pickSlotId, pr.name, ""); closePicker(); }, PLUS_ICON);
+      fresh.classList.add("gv-new");
+      pickList.appendChild(fresh);
+
+      var loading = document.createElement("div"); loading.className = "gv-none"; loading.textContent = "Loading conversations…";
+      pickList.appendChild(loading);
+
+      api("/api/sessions?project=" + encodeURIComponent(pr.name)).then(function (res) {
+        if (pickStep2.hidden || pickProjName.textContent !== pr.name) return;  // user navigated away
+        loading.remove();
+        var list = (res.ok && res.d && res.d.sessions) || [];
+        if (!list.length) {
+          var none = document.createElement("div"); none.className = "gv-none";
+          none.textContent = res.ok ? "No conversations in this project yet." : ((res.d && res.d.error) || "Couldn't load conversations.");
+          pickList.appendChild(none);
+          return;
+        }
+        var head = document.createElement("div"); head.className = "gv-head"; head.textContent = "Recent conversations";
+        pickList.appendChild(head);
+        list.forEach(function (c) {
+          var info = ago(c.updatedAt) + (c.pinned ? " · pinned" : "") + (c.archived ? " · archived" : "");
+          pickList.appendChild(welcomeRow("", c.title || "Untitled", info,
+            function () { fillSlot(pickSlotId, pr.name, c.id); closePicker(); },
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>'));
+        });
+      });
+    }
+
+    /* ---------- Overlay dismissal ---------- */
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      closeSaveMenu();
+      if (!picker.hidden) { closePicker(); return; }
+      if (!chooser.hidden && layout) { closeChooser(); return; }
+      if (!welcome.hidden && layout) { welcome.hidden = true; }
+    });
+    picker.addEventListener("click", function (e) { if (e.target === picker) closePicker(); });
+    chooser.addEventListener("click", function (e) { if (e.target === chooser && layout) closeChooser(); });
+    welcome.addEventListener("click", function (e) { if (e.target === welcome && layout) welcome.hidden = true; });
+
+    /* ---------- Live pane labels + status from the embedded chats ---------- */
+    window.addEventListener("message", function (ev) {
+      if (ev.origin !== ORIGIN) return;
+      var d = ev.data;
+      if (!d) return;
+      var i = slotIdx(d.pane);
+      if (d.type === "plumi:state") {
+        if (i >= 0 && slotEls[i]) {
+          slotEls[i].classList.toggle("busy", !!d.busy);
+          slotEls[i].classList.toggle("attention", !!d.attention);
+        }
+        return;
+      }
+      if (d.type !== "plumi:meta" || i < 0) return;
+      var sec = slotEls[i];
+      if (sec && sec._title) {
+        var label = (d.title && d.title !== "New conversation") ? d.title : (d.project || "New chat");
+        sec._title.textContent = label;
+        sec._title.title = (d.project ? d.project + " · " : "") + (d.title || "");
+      }
+      // Track what the pane is ACTUALLY on (the user can switch inside it), so a
+      // reload — and a saved profile — capture the real conversation.
+      var changed = false;
+      if (d.project && slots[i].project !== d.project) { slots[i].project = d.project; changed = true; }
+      if (typeof d.session === "string" && d.session !== slots[i].conv) { slots[i].conv = d.session; changed = true; }
+      if (changed) { saveBoard(); reflectBar(); }
+    });
+
+    /* ---------- Boot ---------- */
+    Promise.all([
+      api("/api/projects").then(function (res) { projects = (res.ok && res.d && res.d.projects) || []; }),
+      api("/api/grid/profiles").then(function (res) { profiles = (res.ok && res.d && res.d.profiles) || []; })
+    ]).then(function () {
+      // The v1 board (pre-layout era) is obsolete; conversations all live on the
+      // server, so dropping the old device-local pane list loses nothing.
+      try { localStorage.removeItem("plumi.grid.v1"); localStorage.removeItem("plumi.grid.layouts.v1"); } catch (e) {}
+      var restored = loadBoard();
+      if (restored) render(); else reflectBar();
+      if (profiles.length) openWelcome();       // you have profiles → load or start over
+      else if (!restored) openChooser();        // brand new → pick a layout first
+    });
+  })();
+  </script>
+</body>
+</html>

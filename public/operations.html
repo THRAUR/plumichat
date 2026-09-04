@@ -1,0 +1,1844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#141210" />
+<title>PlumiChat · Operations</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg?v=20260904c" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=20260904c" />
+<link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=20260904c" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260904c" />
+<!-- iOS/macOS snapshot the home-screen NAME from here (the manifest's short_name
+     is only read from 15.4 on), so it has to be stated as well as in the manifest. -->
+<meta name="apple-mobile-web-app-title" content="PlumiChat" />
+<link rel="manifest" href="/manifest.webmanifest?v=20260904c" />
+<script src="/theme.js?v=20260904b"></script>
+<!-- Shared tokens, buttons, sheet/overlay and toasts (see public/ui.css / ui.js).
+     Everything below this comment in <style> is Operations-only. -->
+<link rel="stylesheet" href="/plume.css?v=20260904b" />
+<link rel="stylesheet" href="/ui.css?v=20260904b" />
+<script src="/ui.js?v=20260902"></script>
+<style>
+  html { color-scheme: dark; } html[data-theme="light"] { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+    /* Operations wants compact 36px controls; the shared .btn reads these rather
+       than the page forking the whole button block (that is how the three copies
+       drifted apart in the first place). */
+    --btn-h: 36px; --btn-r: 10px; --btn-px: 14px; --btn-fs: 13px; --btn-fw: 550;
+  }
+  button { font-family: inherit; cursor: pointer; }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: var(--accent-dim); }
+
+  /* The whole app is a single centered column — identical on phone and desktop,
+     just wider. A priority feed reads top-to-bottom the same way everywhere. */
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    position: relative;
+    overflow: hidden;
+  }
+  @media (min-width: 640px) { .app { border-inline: 1px solid var(--line); } }
+
+  /* The work area below the bars. Mobile: a single scrolling feed (the detail
+     pane is hidden). Desktop (≥960px): a two-pane master–detail — a compact task
+     list on the left, the selected task's full detail on the right. */
+  .workspace { flex: 1; min-height: 0; display: flex; flex-direction: row; overflow: hidden; }
+  .detail { display: none; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 12px 14px;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    border-bottom: 1px solid var(--line);
+    background: var(--bar-bg);
+    backdrop-filter: saturate(140%) blur(14px);
+    -webkit-backdrop-filter: saturate(140%) blur(14px);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .icon-btn {
+    flex: none;
+    width: 36px; height: 36px;
+    border-radius: var(--r-md); border: 0;
+    background: transparent; color: var(--muted);
+    display: grid; place-items: center;
+    transition: background 0.14s ease, color 0.14s ease;
+  }
+  .icon-btn:hover { background: var(--surface); color: var(--text); }
+  .icon-btn:active { transform: translateY(0.5px); }
+  .head-titles { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+  .head-titles h1 {
+    margin: 0; font-size: 16px; font-weight: 650; letter-spacing: 0.01em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .head-status { font-size: 11.5px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+  .head-status .live { color: var(--accent-text); }
+  .head-status .warn { color: var(--green); font-weight: 600; }
+  .head-status .ship { color: var(--ship); font-weight: 600; }
+  .new-btn {
+    flex: none; margin-left: auto;
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 13px 0 11px;
+    border-radius: var(--r-md); border: 0;
+    background: var(--accent); color: var(--on-accent);
+    font-size: 13px; font-weight: 600;
+    transition: background 0.14s ease, transform 0.12s ease;
+  }
+  .new-btn:hover { filter: brightness(1.08); }
+  .new-btn:active { transform: scale(0.96); }
+
+  /* ---------- Filter chips ---------- */
+  .filters {
+    flex: none;
+    display: flex; gap: 7px;
+    padding: 11px 14px 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .filters::-webkit-scrollbar { display: none; }
+  .chip-f {
+    flex: none;
+    padding: 6px 12px;
+    border-radius: var(--r-win);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 12.5px; font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.14s ease;
+  }
+  .chip-f:hover { color: var(--text); }
+  .chip-f.active { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+
+  /* ---------- Feed ---------- */
+  .feed {
+    flex: 1; min-height: 0;
+    overflow-y: auto;
+    padding: 8px 14px calc(34px + env(safe-area-inset-bottom));
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-3) transparent;
+  }
+  .feed::-webkit-scrollbar { width: 7px; }
+  .feed::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: var(--r-sm); }
+
+  .feed-sec { margin-top: 20px; }
+  .feed-sec:first-child { margin-top: 10px; }
+  .sec-head {
+    display: flex; align-items: center; gap: 9px;
+    padding: 0 2px 10px;
+  }
+  .sec-head .dotmark { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .feed-sec.approval .dotmark { background: var(--green); box-shadow: 0 0 0 2px var(--green-dim); }
+  .feed-sec.running  .dotmark { background: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+  .feed-sec.pipeline .dotmark { background: var(--ship); box-shadow: 0 0 0 2px var(--ship-dim); }
+  .feed-sec.scheduled .dotmark { background: var(--amber); box-shadow: 0 0 0 2px var(--amber-dim); }
+  .feed-sec.queued   .dotmark { background: var(--faint); }
+  .feed-sec.done     .dotmark { background: var(--faint); }
+  .sec-head h2 {
+    margin: 0; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+  }
+  .feed-sec.approval h2 { color: var(--green); }
+  .feed-sec.pipeline h2 { color: var(--ship); }
+  .count {
+    font-size: 11px; font-family: var(--mono); color: var(--faint);
+    background: var(--surface); border: 1px solid var(--line);
+    padding: 1px 8px; border-radius: var(--r-win);
+  }
+  .feed-sec.approval .count { color: var(--green); border-color: var(--green-line); background: var(--green-dim); }
+  .feed-sec.pipeline .count { color: var(--ship); border-color: var(--ship-line); background: var(--ship-dim); }
+  .lane { display: flex; flex-direction: column; gap: 11px; }
+  .more-btn {
+    align-self: center; margin-top: 3px;
+    height: 33px; padding: 0 15px;
+    border-radius: var(--r-md); border: 1px solid var(--line);
+    background: transparent; color: var(--muted);
+    font-size: 12.5px; font-weight: 600;
+    transition: background 0.14s ease, color 0.14s ease;
+  }
+  .more-btn:hover { color: var(--text); background: var(--surface); }
+
+  /* On a roomier screen, plan + history cards tile two-up; the action lanes
+     (review/running/queued) stay single-column so they hold full attention. */
+  @media (min-width: 720px) {
+    .feed-sec.scheduled .lane, .feed-sec.done .lane {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;
+    }
+    .feed-sec.scheduled .lane .more-btn, .feed-sec.done .lane .more-btn { grid-column: 1 / -1; }
+  }
+
+  /* ---------- Empty state (the inviting blank board) ---------- */
+  .empty-state { padding: 12px 2px 0; }
+  .hero { text-align: center; padding: 30px 14px 4px; }
+  .hero-mark {
+    width: 56px; height: 56px; margin: 0 auto 15px;
+    border-radius: var(--r-win); display: grid; place-items: center;
+    background: linear-gradient(180deg, var(--accent-dim), transparent), var(--surface);
+    border: 1px solid var(--accent-line); color: var(--accent-text);
+  }
+  .hero h2 { margin: 0 0 9px; font-size: 21px; font-weight: 680; letter-spacing: 0.01em; }
+  .hero p { margin: 0 auto; max-width: 460px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .qs-label {
+    margin: 26px 2px 12px; text-align: center;
+    font-size: 11.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.09em; color: var(--faint);
+  }
+  .qs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (min-width: 720px) { .qs-grid { grid-template-columns: 1fr 1fr 1fr; } }
+  .qs {
+    text-align: left; display: flex; align-items: flex-start; gap: 11px;
+    padding: 14px; border-radius: var(--r-md);
+    border: 1px solid var(--line); background: var(--surface); color: var(--text);
+    transition: border-color 0.14s ease, background 0.14s ease, transform 0.12s ease;
+  }
+  .qs:hover { border-color: var(--line-strong); background: var(--surface-2); }
+  .qs:active { transform: translateY(0.5px); }
+  .qs-ic {
+    flex: none; width: 36px; height: 36px; border-radius: var(--r-md);
+    display: grid; place-items: center; border: 1px solid;
+  }
+  .qs-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .qs-name { font-size: 14px; font-weight: 620; }
+  .qs-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .custom-link {
+    display: block; margin: 18px auto 6px; padding: 8px 14px;
+    border: 0; background: transparent; color: var(--muted);
+    font-size: 13px; font-weight: 550;
+    transition: color 0.14s ease;
+  }
+  .custom-link:hover { color: var(--accent-text); }
+
+  /* ---------- Card ---------- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    padding: 13px 14px;
+    display: flex; flex-direction: column; gap: 11px;
+    opacity: 1;
+  }
+  .card.enter { animation: pop 0.22s ease both; }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .card.approval { border-color: var(--green-line); background: linear-gradient(180deg, var(--green-dim), transparent 90px), var(--surface); }
+  .card.sched { border-color: var(--amber-line); background: linear-gradient(180deg, var(--amber-dim), transparent 90px), var(--surface); }
+  .card.pipeline { border-color: var(--ship-line); background: linear-gradient(180deg, var(--ship-dim), transparent 90px), var(--surface); }
+  .card.pipeline .ui-spin { color: var(--ship); }
+
+  .card-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tag {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    background: var(--surface-2); border: 1px solid var(--line);
+    padding: 3px 7px; border-radius: var(--r-sm);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .tag .tdot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  .card-time { margin-left: auto; font-size: 11px; color: var(--faint); font-family: var(--mono); flex: none; }
+  .card-title { font-size: 15px; font-weight: 550; line-height: 1.35; }
+
+  /* status pill on completed cards */
+  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--r-win); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  .pill.applied, .pill.shipped { color: var(--green); border-color: var(--green-line); background: var(--green-dim); }
+  .pill.ship { color: var(--ship); border-color: var(--ship-line); background: var(--ship-dim); }
+  .pill.run { color: var(--accent-text); border-color: var(--accent-line); background: var(--accent-dim); }
+  .pill.sched { color: var(--amber); border-color: var(--amber-line); background: var(--amber-dim); }
+  .pill.rejected, .pill.error, .pill.cancelled, .pill.bad { color: var(--error); border-color: var(--error-line); background: var(--error-dim); }
+  .pill .pdot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .sum { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .sum .sum-lead { margin: 0 0 6px; }
+  .sum .sum-lead:last-child { margin-bottom: 0; }
+  .sum .sum-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .sum .sum-list li { line-height: 1.45; }
+  .sum .sum-list li::marker { color: var(--accent-text); }
+  .detail-toggle {
+    margin-top: 10px; display: inline-flex; align-items: center; gap: 6px;
+    background: none; border: none; padding: 4px 2px; cursor: pointer;
+    font: inherit; font-size: 12px; font-weight: 550; color: var(--muted);
+  }
+  .detail-toggle:hover { color: var(--text); }
+  .detail-toggle .chev { transition: transform 0.15s ease; flex: none; color: var(--faint); }
+  .detail-toggle .chev.up { transform: rotate(180deg); }
+  .detail-text {
+    margin-top: 8px; padding: 10px 12px; border-radius: var(--r-md);
+    background: var(--surface-2); border: 1px solid var(--line);
+    font-size: 12.5px; color: var(--faint); line-height: 1.5;
+    white-space: pre-wrap; max-height: 300px; overflow: auto;
+  }
+  .err-text { font-size: 12.5px; color: var(--error); line-height: 1.45; white-space: pre-wrap; }
+
+  .stat {
+    display: flex; gap: 12px; align-items: center;
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    padding-top: 1px;
+  }
+  .stat .add { color: var(--green); }
+  .stat .del { color: var(--error); }
+  .stat .files { color: var(--faint); }
+
+  .step { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .ui-spin { color: var(--accent-text); }
+
+  .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ---------- Area (category) badges ---------- */
+  .cat {
+    font-size: 10.5px; font-weight: 650; letter-spacing: 0.03em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: var(--r-sm); border: 1px solid;
+    display: inline-flex; align-items: center; gap: 5px; line-height: 1; flex: none;
+    color: var(--muted); border-color: var(--line-strong); background: var(--surface-2);
+  }
+  .cat .cdot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .cat-general     { color: var(--muted);  border-color: var(--line-strong); background: var(--surface-2); }
+  .cat-payments    { color: var(--amber);  border-color: var(--amber-line);  background: var(--amber-dim); }
+  .cat-translation { color: var(--accent-text); border-color: var(--accent-line); background: var(--accent-dim); }
+  .cat-support     { color: var(--ship);   border-color: var(--ship-line);   background: var(--ship-dim); }
+  .cat-health      { color: var(--green);  border-color: var(--green-line);  background: var(--green-dim); }
+  .cat-branding    { color: var(--pink);   border-color: var(--pink-line);   background: var(--pink-dim); }
+  .cat-billing     { color: var(--orange); border-color: var(--orange-line); background: var(--orange-dim); }
+
+  /* ---------- Patch review ----------
+     The captured diff for a task awaiting approval, rendered read-only. Colour is
+     the ONLY interpretation applied: every line is escaped and printed verbatim,
+     because a diff is attacker-shaped text (it contains whatever the agent wrote
+     into the files) and must never be parsed as markup. */
+  .diffbox { margin-top: 9px; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--surface-2); }
+  .dfiles { display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
+  .dfile { display: flex; align-items: baseline; gap: 9px; padding: 7px 11px; font-family: var(--mono); font-size: 11.5px; border-top: 1px solid var(--line); }
+  .dfile:first-child { border-top: 0; }
+  .dfile .dpath { flex: 1; min-width: 0; color: var(--muted); word-break: break-all; }
+  .dfile .dadd { color: var(--green); flex: none; }
+  .dfile .ddel { color: var(--error); flex: none; }
+  .dfile .dbin { color: var(--faint); flex: none; }
+  pre.diff {
+    margin: 0; padding: 10px 0; max-height: 420px; overflow: auto;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+    color: var(--muted); background: var(--panel-bg);
+  }
+  pre.diff .dl { display: block; padding: 0 11px; white-space: pre-wrap; word-break: break-all; }
+  pre.diff .dl.add { color: var(--green); background: var(--green-dim); }
+  pre.diff .dl.del { color: var(--error); background: var(--error-dim); }
+  pre.diff .dl.hunk { color: var(--accent-text); background: var(--accent-dim); }
+  pre.diff .dl.meta { color: var(--faint); font-weight: 600; }
+  .diff-note { padding: 9px 11px; font-size: 12px; color: var(--faint); line-height: 1.45; }
+  .diff-note.err { color: var(--error); }
+
+  /* ---------- Scheduled meta ---------- */
+  .sched-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .recur {
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--line-strong);
+    padding: 3px 8px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 6px;
+  }
+  .recur svg { color: var(--amber); flex: none; }
+  .nextrun { margin-left: auto; font-size: 11px; color: var(--amber); font-family: var(--mono); flex: none; }
+
+  /* ---------- Sheet ----------
+     The shared .ui-sheet is the bottom-sheet behaviour and the `.settled` latch;
+     only the shadow and the desktop "centered modal" variant are ours. */
+  .ui-overlay { backdrop-filter: blur(1px); -webkit-backdrop-filter: blur(1px); }
+  .ui-sheet { box-shadow: var(--shadow-win); }
+  .ui-sheet h3 { margin: 0 0 3px; font-size: 16px; font-weight: 650; }
+  .ui-sheet .sub { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+  .field { margin-bottom: 13px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+  .select-wrap { position: relative; }
+  .select-wrap svg { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+  select, textarea, input.txt {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    color: var(--text);
+    font-family: inherit; font-size: 14.5px;
+    padding: 11px 12px;
+    outline: none;
+    transition: border-color 0.14s ease;
+  }
+  select { -webkit-appearance: none; appearance: none; padding-right: 34px; }
+  textarea { resize: none; min-height: 92px; line-height: 1.5; }
+  select:focus, textarea:focus, input.txt:focus { border-color: var(--accent-line); }
+  textarea::placeholder { color: var(--faint); }
+  .sheet-actions { display: flex; gap: 9px; margin-top: 6px; }
+  .sheet-actions .btn { height: 44px; flex: 1; font-size: 14px; }
+
+  /* schedule + area picker (sheet) */
+  .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .seg button {
+    height: 38px; border-radius: var(--r-md); border: 1px solid var(--line-strong);
+    background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 600;
+    transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--accent-dim); border-color: var(--accent-line); color: var(--text); }
+  .when { margin-top: 11px; display: flex; gap: 9px; }
+  .when[hidden] { display: none; }
+  .when > * { flex: 1; }
+  .when .select-wrap { flex: 1.1; }
+  input.txt[type="time"], input.txt[type="datetime-local"] { -webkit-appearance: none; appearance: none; }
+  .cat-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+  .cat-pick {
+    padding: 7px 11px; border-radius: var(--r-md); border: 1px solid var(--line-strong);
+    background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 7px;
+    transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  }
+  .cat-pick .cdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .cat-pick:hover { color: var(--text); }
+  .cat-pick.on { color: var(--text); border-color: var(--accent-line); background: var(--accent-dim); }
+
+  /* ---------- Detail pane (desktop master–detail) ---------- */
+  .detail { flex-direction: column; min-width: 0; overflow-y: auto; background: var(--bg);
+    scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+  .detail::-webkit-scrollbar { width: 8px; }
+  .detail::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: var(--r-sm); }
+  .dp { padding: 24px 28px calc(40px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+  .dp-empty { height: 100%; min-height: 60vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--faint); text-align: center; }
+  .dp-empty svg { color: var(--surface-3); }
+  .dp-empty p { margin: 0; font-size: 14px; max-width: 260px; }
+  .dp-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .dp-time { margin-left: auto; font-size: 11.5px; color: var(--faint); font-family: var(--mono); }
+  .dp-title { margin: 0; font-size: 20px; font-weight: 650; line-height: 1.3; letter-spacing: 0.01em; }
+  .dp-label { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); margin-bottom: 8px; }
+  .dp-block { padding-top: 4px; }
+  .dp-block + .dp-block { border-top: 1px solid var(--line); padding-top: 16px; }
+  .dp-prompt { font-size: 14px; color: var(--text); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+  .dp .sum { font-size: 14px; }
+  .testout { margin: 0; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line);
+    font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+  .ship-banner { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--r-md);
+    background: var(--green-dim); border: 1px solid var(--green-line); color: var(--green); font-size: 13px; }
+  .ship-banner svg { flex: none; }
+  .ship-banner code { font-family: var(--mono); font-size: 12px; background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: var(--r-sm); color: var(--text); }
+  .dp-activity { display: flex; flex-direction: column; gap: 6px; }
+  .dp-activity .ev { display: flex; gap: 9px; align-items: baseline; font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .dp-activity .ev .evk { flex: none; width: 56px; color: var(--faint); text-transform: lowercase; }
+  .dp-activity .ev.err .evk, .dp-activity .ev.err { color: var(--error); }
+  .dp-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+  .dp-actions .btn { height: 40px; }
+  .xnotes { display: flex; flex-direction: column; gap: 11px; }
+  .xnote { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; line-height: 1.5; }
+  .xnote .xdir { flex: none; font-family: var(--mono); font-size: 11px; color: var(--ship); text-transform: uppercase; letter-spacing: 0.04em; }
+  .xnote .xstatus { flex: none; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .xnote .xmsg { flex: 1 1 100%; color: var(--muted); padding-left: 2px; }
+  .sig-muted { font-size: 13px; color: var(--faint); }
+  .sig-ok { font-size: 13px; color: var(--muted); }
+  .sig-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; flex-wrap: wrap; }
+  .sig-total { font-weight: 650; color: var(--text); font-size: 13.5px; }
+  .sig-sev { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .sig-list { display: flex; flex-direction: column; gap: 6px; }
+  .sig-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.5; }
+  .sig-count { flex: none; font-family: var(--mono); font-size: 12px; color: var(--faint); min-width: 30px; text-align: right; }
+  .sig-code { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .sig-msg { flex: 1 1 100%; color: var(--faint); padding-left: 38px; font-size: 12px; }
+  .sig-tag { flex: none; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: var(--r-sm); }
+  .sig-tag.sig-critical, .sig-tag.sig-error { color: var(--error); background: var(--error-dim); }
+  .sig-tag.sig-warn { color: var(--faint); background: var(--line); }
+
+  /* ======================= Desktop niceties ======================= */
+  @media (min-width: 720px) {
+    .topbar { padding: 14px 22px; gap: 14px; }
+    .head-titles h1 { font-size: 17px; }
+    .filters { padding: 13px 22px 5px; flex-wrap: wrap; overflow: visible; }
+    .feed { padding: 12px 22px calc(28px + env(safe-area-inset-bottom)); }
+
+    /* New request: centered modal instead of a bottom sheet */
+    .ui-overlay { background: rgba(4, 5, 7, 0.6); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+    .ui-sheet {
+      left: 50%; right: auto; bottom: auto; top: 50%;
+      width: min(520px, calc(100% - 48px));
+      border: 1px solid var(--line-strong);
+      border-radius: var(--r-win);
+      padding: 22px 24px calc(20px + env(safe-area-inset-bottom));
+      transform: translate(-50%, calc(-50% + 14px)) scale(0.97);
+      opacity: 0; pointer-events: none;
+      transition: transform 0.24s cubic-bezier(0.22, 0.7, 0.2, 1), opacity 0.2s ease;
+      box-shadow: var(--shadow-win);
+      max-height: 88dvh;
+    }
+    .ui-sheet.open { transform: translate(-50%, -50%) scale(1); opacity: 1; pointer-events: auto; }
+    .ui-grip { display: none; }
+    .ui-sheet h3 { font-size: 18px; margin-top: 4px; }
+    .sheet-actions { margin-top: 14px; }
+    .sheet-actions .btn { height: 42px; }
+    .ui-toasts { left: auto; right: 0; align-items: flex-end; padding: 0 22px calc(22px + env(safe-area-inset-bottom)); }
+  }
+  @media (min-width: 720px) and (prefers-reduced-motion: reduce) {
+    .ui-sheet { transition: opacity 0.18s ease; }
+    .ui-sheet, .ui-sheet.open { transform: translate(-50%, -50%); }
+  }
+
+  /* ======================= Two-pane (≥960px) =======================
+     A roomy screen earns a master–detail split: a compact task list on the
+     left, the selected task's full detail on the right. Placed last so it wins
+     source order over the single-column desktop rules above. */
+  @media (min-width: 960px) {
+    .app { max-width: min(1200px, 100%); }
+    .feed { flex: none; width: 392px; border-right: 1px solid var(--line); padding: 12px 14px calc(28px + env(safe-area-inset-bottom)); }
+    .detail { display: flex; flex: 1; }
+
+    /* The left list reads as compact rows: title + meta only. The heavy content
+       (summary, diff, activity, actions) lives in the detail pane on the right. */
+    .feed .card { cursor: pointer; padding: 11px 12px; gap: 6px; transition: border-color 0.12s ease, background 0.12s ease; }
+    .feed .card:hover { border-color: var(--line-strong); }
+    .feed .card.selected { border-color: var(--accent-line); box-shadow: inset 0 0 0 1px var(--accent-line); }
+    .feed .card .sum, .feed .card .detail-toggle, .feed .card .detail-text,
+    .feed .card .card-actions, .feed .card .stat, .feed .card .err-text,
+    .feed .card .testout, .feed .card .ship-banner, .feed .card .diffbox { display: none; }
+    .feed .card-title { font-size: 13.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .feed .card .step { font-size: 11px; }
+
+    /* Single-column lanes in the narrow left list (override the two-up tiling). */
+    .feed-sec.scheduled .lane, .feed-sec.done .lane { display: flex; flex-direction: column; gap: 11px; }
+    .feed-sec { margin-top: 16px; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     PLUME — Operations, in the Plume design system.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  .head-titles h1, .hero h2, .sec-head h2, .dp-title {
+    font-family: var(--font-display); font-weight: 700; letter-spacing: 0.01em;
+  }
+  .head-titles h1 { font-size: 15px; }
+  .head-status { font-size: 10px; font-family: var(--font-label); letter-spacing: 0.06em; text-transform: uppercase; }
+  .topbar { border-bottom: 1px solid var(--line-strong); }
+
+  /* Group headings are Silkscreen with a rule out to the edge — the same
+     device the chat sidebar uses, so the two pages read as one product. */
+  .sec-head .sec-title, .qs-label, .block-title {
+    font-family: var(--font-label); font-size: 10px; font-weight: 400;
+    letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint);
+  }
+  .sec-head .dotmark { border-radius: 0; width: 6px; height: 6px; }
+
+  /* PROJECT FILTERS — the row used to end at the right edge of the phone with
+     nothing to say it continued, so on this box the last eight projects were
+     simply invisible. Wrapping them was worse: fourteen projects with long
+     names ate half the screen before the board began. So the row still scrolls,
+     but it now SAYS it scrolls — the right edge fades out while there is more
+     to reach, and the fade lifts the moment you hit the end. Chips snap, so a
+     flick lands on a chip boundary instead of halfway through a name. */
+  .filters {
+    gap: 6px;
+    padding: 11px 14px 9px;
+    border-bottom: 1px solid var(--line);
+  }
+  /* Below 720px the row scrolls; from 720px up there is width to wrap, and the
+     page already does (see "Desktop niceties"). The fade and the snapping only
+     make sense on the scrolling one, so they are scoped to it — left global,
+     the mask clipped the wrapped rows on a laptop. */
+  @media (max-width: 719px) {
+    .filters {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scroll-snap-type: x proximity;
+      -webkit-mask-image: linear-gradient(to right, #000 0 calc(100% - 34px), transparent 100%);
+      mask-image: linear-gradient(to right, #000 0 calc(100% - 34px), transparent 100%);
+      transition: -webkit-mask-image var(--dur-base) linear, mask-image var(--dur-base) linear;
+    }
+    /* Both ends reachable → no fade. JS sets these; without JS the mask simply
+       stays on, which is the safe direction to fail in. */
+    .filters[data-scroll="end"], .filters[data-scroll="none"] {
+      -webkit-mask-image: none;
+      mask-image: none;
+    }
+    .chip-f { scroll-snap-align: start; }
+  }
+  .chip-f {
+    min-height: 36px;              /* was 28px — the smallest target on the page */
+    display: inline-flex; align-items: center;
+    border-radius: var(--r-sm);
+    border-color: var(--line-strong);
+  }
+  /* Inverted, not accented — see the note on .chip.active in settings.html.
+     Here the competing fill is the "New" button in the bar directly above. */
+  .chip-f.active { background: var(--text); border-color: var(--text); color: var(--bg); font-weight: 700; }
+
+  .new-btn {
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow var(--dur-fast) linear, transform var(--dur-fast) linear;
+  }
+  .new-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+  .icon-btn { border-radius: var(--r-sm); }
+  .icon-btn:active { transform: none; }
+
+  /* The hero mark is the one terracotta fill on an empty board. */
+  .hero-mark {
+    border-radius: var(--r-md);
+    background: var(--accent);
+    border: 0;
+    color: var(--on-accent);
+    box-shadow: var(--shadow-md);
+  }
+  .hero h2 { font-size: 22px; }
+  .hero p { font-size: 14px; }
+  .qs-label { display: block; }
+
+  /* FOCUS AREAS — six tiles that used to carry six different pastel tints, one
+     per area, which is six accents on one screen. The icon already names the
+     area, so the tile is now monochrome and the accent is spent on the ONE
+     thing that matters: which tile you are pointing at. Fixed rows keep them
+     the same height whether the description wraps to two lines or three. */
+  .qs-grid { gap: 8px; grid-auto-rows: 1fr; }
+  .qs {
+    border-radius: var(--r-md);
+    border-color: var(--line-strong);
+    box-shadow: var(--shadow-sm);
+    transition: border-color var(--dur-fast) linear, background var(--dur-fast) linear,
+                box-shadow var(--dur-fast) linear, transform var(--dur-fast) linear;
+  }
+  .qs:hover { border-color: var(--accent); background: var(--surface-2); }
+  .qs:active { transform: translate(2px, 2px); box-shadow: none; }
+  .qs-ic {
+    border-radius: var(--r-sm);
+    border-color: var(--line-strong) !important;
+    background: var(--surface-2) !important;
+    color: var(--muted) !important;
+  }
+  .qs:hover .qs-ic { border-color: var(--accent) !important; background: var(--accent-dim) !important; color: var(--accent-text) !important; }
+  .qs-name { font-size: 13.5px; font-weight: 700; }
+  .qs-desc { font-size: 11.5px; }
+  .custom-link { font-weight: 600; }
+
+  /* Cards, tags and pills: sharp, hairlined, no gradient washes. A status is
+     told by its label and its dot, and tinted only where the tint is a state. */
+  .card { border-radius: var(--r-md); border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
+  .card.approval { background: var(--surface); border-color: var(--green-line); }
+  .card.sched    { background: var(--surface); border-color: var(--amber-line); }
+  .card.pipeline { background: var(--surface); border-color: var(--accent-line); }
+  .card-title { font-size: 14.5px; font-weight: 600; }
+  .card-time { font-size: 10px; }
+  .tag, .pill, .cat, .cat-pick {
+    border-radius: var(--r-sm);
+    font-family: var(--font-label); font-size: 9px; font-weight: 400;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .tag .tdot, .pill .pdot, .cat .cdot, .cat-pick .cdot { border-radius: 0; width: 4px; height: 4px; }
+  /* Area badges go monochrome for the same reason the tiles did. */
+  .cat-payments, .cat-translation, .cat-support, .cat-health, .cat-branding, .cat-billing, .cat-general {
+    color: var(--muted); border-color: var(--line-strong); background: var(--surface-2);
+  }
+  .cat-pick.on { border-color: var(--accent); background: var(--accent-dim); color: var(--accent-text); }
+  .cat-pick { min-height: 34px; }   /* was 27px */
+  .dp-empty svg { color: var(--line-strong); }
+
+</style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <a class="icon-btn" href="/" aria-label="Back to chat">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </a>
+      <div class="head-titles">
+        <h1>Operations</h1>
+        <div class="head-status" id="headStatus"></div>
+      </div>
+      <button class="new-btn" id="newBtn" type="button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        New
+      </button>
+    </header>
+
+    <div class="filters" id="filters"></div>
+
+    <div class="workspace">
+      <main class="feed" id="feed"></main>
+      <aside class="detail" id="detail"></aside>
+    </div>
+
+    <!-- Sheet -->
+    <div class="ui-overlay" id="sheetOverlay"></div>
+    <div class="ui-sheet" id="sheet" role="dialog" aria-modal="true">
+      <div class="ui-grip"></div>
+      <h3 id="sheetTitle">New request</h3>
+      <p class="sub" id="sheetSub">Describe a task for PlumiChat to run in the background.</p>
+      <div class="field">
+        <label for="sProject">Project</label>
+        <div class="select-wrap">
+          <select id="sProject"></select>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </div>
+      </div>
+      <div class="field">
+        <label>Area</label>
+        <div class="cat-grid" id="catGrid"></div>
+      </div>
+      <div class="field">
+        <label for="sPrompt">Task</label>
+        <textarea id="sPrompt" placeholder="e.g. Add retry + backoff to the upload client and cover it with tests"></textarea>
+      </div>
+      <!-- createTask accepts { model }; editTask does not, so this is disabled in
+           edit mode rather than silently ignored. -->
+      <div class="field">
+        <label for="sModel">Model</label>
+        <div class="select-wrap">
+          <select id="sModel"></select>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </div>
+        <div class="diff-note" id="sModelNote" style="padding:6px 0 0" hidden>The model can't be changed after a task is created.</div>
+      </div>
+      <div class="field">
+        <label>When</label>
+        <div class="seg" id="schedSeg">
+          <button type="button" data-when="now" class="on">Now</button>
+          <button type="button" data-when="once">Once</button>
+          <button type="button" data-when="daily">Daily</button>
+          <button type="button" data-when="weekly">Weekly</button>
+        </div>
+        <div class="when" id="whenOnce" hidden>
+          <input class="txt" type="datetime-local" id="schedAt" />
+        </div>
+        <div class="when" id="whenDaily" hidden>
+          <input class="txt" type="time" id="schedTimeD" value="09:00" />
+        </div>
+        <div class="when" id="whenWeekly" hidden>
+          <div class="select-wrap">
+            <select id="schedDay">
+              <option value="1">Monday</option>
+              <option value="2">Tuesday</option>
+              <option value="3">Wednesday</option>
+              <option value="4">Thursday</option>
+              <option value="5">Friday</option>
+              <option value="6">Saturday</option>
+              <option value="0">Sunday</option>
+            </select>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <input class="txt" type="time" id="schedTimeW" value="09:00" />
+        </div>
+        <div class="diff-note" id="schedTzNote" style="padding:8px 0 0" hidden></div>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn btn-ghost" id="sheetCancel" type="button">Cancel</button>
+        <button class="btn btn-primary" id="sheetSubmit" type="button">Queue request</button>
+      </div>
+    </div>
+
+    <!-- Confirm dialog (reuses the sheet's styling/animation) -->
+    <div class="ui-overlay" id="confirmOverlay"></div>
+    <div class="ui-sheet confirm-sheet" id="confirmSheet" role="dialog" aria-modal="true">
+      <div class="ui-grip"></div>
+      <h3 id="confirmTitle">Confirm</h3>
+      <p class="sub" id="confirmSub"></p>
+      <div class="sheet-actions" id="confirmActions"></div>
+    </div>
+
+    <div class="ui-toasts" id="toasts"></div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Shared helpers (public/ui.js): one escaping toast, one JSON fetch that throws
+  // the SERVER'S message (the ops runner's refusals are written to be read), one
+  // sheet driver, one relative-time formatter.
+  var UI = window.PlumiUI;
+  var esc = UI.esc;
+  var ic = UI.ic;
+  var api = UI.api;
+  var toast = UI.toast;
+  var fmtAgo = UI.relTime;
+  var fmtIn = UI.relUntil;
+
+  /* ---------- DOM refs ---------- */
+  var feed = document.getElementById("feed");
+  var detail = document.getElementById("detail");
+  var headStatus = document.getElementById("headStatus");
+  var filtersEl = document.getElementById("filters");
+
+  var PROJECTS = [];
+  var tasks = [];
+  var activeFilter = "all";
+  var showAllDone = false;     // history starts folded
+  var DONE_PREVIEW = 4;
+  var selectedId = null;       // desktop master–detail: the task shown on the right
+  var lastDetailSig = "";      // avoid rebuilding the detail pane when unchanged
+  var lastFeedSig = "";        // skip the feed rebuild when nothing meaningful changed
+                               // (the 2.5s poll would otherwise clobber scroll/DOM each tick)
+
+  /* ---------- the board's vocabulary ----------
+     These used to be hard-coded here AND in three places in server/operations.js,
+     and they had already drifted: 'apply_failed' existed server-side and this file
+     had never heard of it, so such a task simply vanished from every lane. They
+     now come from GET /api/ops/meta. The constants below are only the fallback for
+     a server that predates that route — keep them in sync with operations.js's
+     DONE_STATUS_LIST / PIPELINE_STATUS_LIST / RETRYABLE_STATUS_LIST. */
+  var FALLBACK_DONE = ["applied", "shipped", "done", "rejected", "cancelled", "error", "verify_failed", "ship_failed", "apply_failed"];
+  var FALLBACK_PIPELINE = ["verifying", "fixing", "shipping"];
+  var FALLBACK_RETRYABLE = ["error", "cancelled", "apply_failed", "verify_failed", "ship_failed"];
+  var FALLBACK_CATS = ["general", "payments", "translation", "support", "health", "branding", "billing"];
+
+  var DONE_STATUSES = FALLBACK_DONE;
+  var PIPELINE_STATUSES = FALLBACK_PIPELINE;
+  var RETRY_STATUSES = FALLBACK_RETRYABLE;
+  var MAX_FIX = 2;             // mirrors MAX_FIX_ATTEMPTS on the server
+  var CATS = FALLBACK_CATS;    // area ids, in the server's order
+  var META_PROJECTS = [];      // [{ name, hasTestGate }] — drives the accept wording
+
+  /* ---------- icons ---------- */
+  var I_CHECK = '<polyline points="20 6 9 17 4 12"></polyline>';
+  var I_X = '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>';
+  var I_EDIT = '<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path>';
+  var I_TRASH = '<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6M14 11v6"></path>';
+  var I_SPIN = '<path d="M21 12a9 9 0 1 1-6.2-8.5"></path>';
+  var I_PLAY = '<polygon points="6 4 20 12 6 20 6 4"></polygon>';
+  var I_CLOCK = '<circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline>';
+  // area + hero icons
+  var I_LAYERS = '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>';
+  var I_CARD = '<rect x="2" y="5" width="20" height="14" rx="2.5"></rect><line x1="2" y1="10" x2="22" y2="10"></line>';
+  var I_GLOBE = '<circle cx="12" cy="12" r="9"></circle><line x1="3" y1="12" x2="21" y2="12"></line><path d="M12 3c2.6 2.6 2.6 15.4 0 18M12 3c-2.6 2.6-2.6 15.4 0 18"></path>';
+  var I_HEADSET = '<path d="M4 13v-1a8 8 0 0 1 16 0v1"></path><rect x="2.5" y="13" width="4" height="6.5" rx="1.6"></rect><rect x="17.5" y="13" width="4" height="6.5" rx="1.6"></rect>';
+  var I_PULSE = '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>';
+  var I_SPARK = '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"></path>';
+  var I_CHART = '<line x1="6" y1="20" x2="6" y2="11"></line><line x1="12" y1="20" x2="12" y2="5"></line><line x1="18" y1="20" x2="18" y2="14"></line>';
+  var I_CHEV = '<polyline points="6 9 12 15 18 9"></polyline>';
+  var I_ROCKET = '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"></path><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path>';
+
+  /* ---------- helpers ---------- */
+  function firstLine(s) { s = (s || "").trim(); var i = s.indexOf("\n"); return ((i < 0 ? s : s.slice(0, i)).slice(0, 140)) || "Untitled task"; }
+  function diffStat(d) {
+    if (!d || (!d.files && !d.additions && !d.deletions)) return "";
+    return '<div class="stat"><span class="files">' + d.files + ' file' + (d.files === 1 ? "" : "s") + '</span>' +
+      '<span class="add">+' + d.additions + '</span><span class="del">−' + d.deletions + '</span></div>';
+  }
+  function lastStep(t) {
+    for (var i = (t.log || []).length - 1; i >= 0; i--) {
+      var e = t.log[i];
+      if (e.type === "tool") return (e.name || "Working") + (e.target ? " · " + e.target : "");
+      if (e.type === "notice") return e.text;
+    }
+    return "Thinking…";
+  }
+  function tagHtml(t, live) { return '<span class="tag">' + (live ? '<span class="tdot"></span>' : "") + esc(t.project) + '</span>'; }
+
+  // One mapping for every status → { pill-class, label }. Used by history cards
+  // and the detail pane so the wording stays consistent.
+  function statusMeta(s) {
+    switch (s) {
+      case "needs_approval": return { cls: "", txt: "Needs review" };
+      case "queued":      return { cls: "", txt: "Queued" };
+      case "scheduled":   return { cls: "sched", txt: "Scheduled" };
+      case "running":     return { cls: "run", txt: "Running" };
+      case "verifying":   return { cls: "ship", txt: "Verifying" };
+      case "fixing":      return { cls: "ship", txt: "Fixing tests" };
+      case "shipping":    return { cls: "ship", txt: "Shipping" };
+      case "shipped":     return { cls: "shipped", txt: "Shipped" };
+      case "applied":     return { cls: "applied", txt: "Applied" };
+      case "done":        return { cls: "", txt: "Done · no changes" };
+      case "rejected":    return { cls: "bad", txt: "Rejected" };
+      case "cancelled":   return { cls: "bad", txt: "Cancelled" };
+      case "error":       return { cls: "bad", txt: "Error" };
+      case "verify_failed": return { cls: "bad", txt: "Tests failed" };
+      case "ship_failed": return { cls: "bad", txt: "Ship failed" };
+      // The patch would not apply cleanly to the real tree; the runner rolled the
+      // tree back, so nothing of this task is in the working copy.
+      case "apply_failed": return { cls: "bad", txt: "Couldn't apply" };
+      default:            return { cls: "", txt: s || "—" };
+    }
+  }
+  // "Something went wrong" — the statuses whose error text and test output are
+  // worth showing. Kept as one predicate because it was written out four times.
+  var FAILED_STATUSES = ["error", "verify_failed", "ship_failed", "apply_failed"];
+  function isFailed(t) { return FAILED_STATUSES.indexOf(t.status) >= 0; }
+  function canRetry(t) { return RETRY_STATUSES.indexOf(t.status) >= 0; }
+  // "Approve & ship" promises a test gate and a push. Only say it where the
+  // project actually has one — meta.projects knows, this page used to guess.
+  function acceptLabel(t) {
+    for (var i = 0; i < META_PROJECTS.length; i++) {
+      if (META_PROJECTS[i].name === t.project) return META_PROJECTS[i].hasTestGate ? "Approve &amp; ship" : "Approve &amp; apply";
+    }
+    return "Approve &amp; apply"; // unknown → promise the smaller thing
+  }
+  function acceptBtn(t) { return '<button class="btn btn-primary grow" data-action="accept">' + ic(I_CHECK, 14) + acceptLabel(t) + '</button>'; }
+  function retryBtn() { return '<button class="btn" data-action="retry">' + ic(I_PLAY, 14) + 'Retry</button>'; }
+  // A green "pushed to <branch> · <commit>" banner for shipped tasks.
+  function shipLine(t) {
+    if (!t.shipCommit && !t.shipBranch) return "";
+    return '<div class="ship-banner">' + ic(I_ROCKET, 15) +
+      '<span>Pushed to ' + esc(t.shipBranch || "remote") + ' — deploy underway</span>' +
+      (t.shipCommit ? '<code>' + esc(t.shipCommit) + '</code>' : "") + '</div>';
+  }
+  // One activity-log line for the detail pane.
+  function evLine(e) {
+    var k = e.type === "tool" ? (e.name || "tool") : e.type;
+    var txt = e.type === "tool" ? (e.target || "") : (e.text || "");
+    return '<div class="ev' + (e.type === "error" ? " err" : "") + '"><span class="evk">' + esc(k) + '</span><span>' + esc(txt) + '</span></div>';
+  }
+  // Live production signals: the redacted error digest this run was briefed
+  // with (what was failing in production when it started). Hidden for projects
+  // with no signals source configured.
+  function sigWin(h) { h = h || 24; return h >= 168 ? "last week" : (h <= 24 ? "last day" : "last " + h + "h"); }
+  function liveSignalsBlock(t) {
+    var s = t.liveSignals;
+    if (!s) return "";
+    var win = sigWin(s.hours);
+    var h = '<div class="dp-block"><div class="dp-label">Live signals · ' + esc(win) + '</div>';
+    if (!s.ok) {
+      h += '<div class="sig-muted">Couldn’t reach the production error feed' + (s.status ? ' (HTTP ' + esc(String(s.status)) + ')' : '') + '. The run proceeded without it.</div></div>';
+      return h;
+    }
+    if (!s.total) { return h + '<div class="sig-ok">No production errors logged in the ' + esc(win) + '.</div></div>'; }
+    var sev = s.bySeverity || {};
+    var sevTxt = ["critical", "error", "warn"].filter(function (k) { return sev[k]; })
+      .map(function (k) { return sev[k] + " " + k; }).join(", ");
+    h += '<div class="sig-head"><span class="sig-total">' + esc(String(s.total)) + ' failures</span>' +
+      (sevTxt ? '<span class="sig-sev">' + esc(sevTxt) + '</span>' : '') + '</div>';
+    var top = s.top || [];
+    if (top.length) {
+      h += '<div class="sig-list">';
+      top.forEach(function (e) {
+        h += '<div class="sig-row"><span class="sig-count">' + esc(String(e.count)) + '×</span>' +
+          '<span class="sig-code">' + esc((e.category || "?") + "/" + (e.code || "—")) + '</span>' +
+          (e.severity ? '<span class="sig-tag sig-' + esc(e.severity) + '">' + esc(e.severity) + '</span>' : '') +
+          (e.msg ? '<span class="sig-msg">' + esc(e.msg) + '</span>' : '') + '</div>';
+      });
+      h += '</div>';
+    }
+    return h + '</div>';
+  }
+  // Cross-area handoff notes: what this run SENT to other areas, and what it
+  // RECEIVED from them (with the sender's outcome). Empty + hidden for a run
+  // that stayed in its own lane.
+  function xaTag(cat) { var c = catMeta(cat || "general"); return '<span class="cat cat-' + c.id + '"><span class="cdot"></span>' + esc(c.label) + '</span>'; }
+  function crossAreaBlock(t) {
+    var out = t.handoffs || [], inc = t.contextNotes || [];
+    if (!out.length && !inc.length) return "";
+    var h = '<div class="dp-block"><div class="dp-label">Cross-area notes</div><div class="xnotes">';
+    out.forEach(function (n) {
+      h += '<div class="xnote"><span class="xdir">sent →</span>' + xaTag(n.to) + '<span class="xmsg">' + esc(n.message) + '</span></div>';
+    });
+    inc.forEach(function (n) {
+      h += '<div class="xnote"><span class="xdir">from</span>' + xaTag(n.from) +
+        (n.status ? '<span class="xstatus">' + esc(n.status) + (n.commit ? ' · ' + esc(n.commit) : '') + '</span>' : '') +
+        '<span class="xmsg">' + esc(n.message) + '</span></div>';
+    });
+    return h + '</div></div>';
+  }
+
+  /* ---------- areas (categories) ----------
+     WHICH areas exist is the server's call (opsMeta().categories); how each one
+     LOOKS — icon, blurb, quick-start prompt — is presentation and lives here. An
+     area the server adds that this table has never seen still renders: it gets a
+     title-cased label, the layers icon and the neutral chip styling. */
+  var CAT_INFO = {
+    general:     { label: "General",     icon: I_LAYERS },
+    payments:    { label: "Payments",    icon: I_CARD,    desc: "Checkout, membership & access",  starter: "Audit the payments and membership flow for security and correctness — check access gating, webhook handling, refunds, and error paths. Report findings and propose precise fixes." },
+    translation: { label: "Translation", icon: I_GLOBE,   desc: "Accuracy, menus & languages",    starter: "Review translation accuracy and menu/language coverage — flag mistranslations, missing strings, and inconsistent terms across supported languages. Suggest concrete edits." },
+    support:     { label: "Support",     icon: I_HEADSET, desc: "Tickets, replies & FAQs",        starter: "Triage open support tickets, group recurring issues, and propose clearer canned responses and FAQ updates." },
+    health:      { label: "Site health", icon: I_PULSE,   desc: "Website & admin uptime",         starter: "Run a health check across the website and admin dashboard — surface errors, slow paths, broken links, and anything degraded." },
+    branding:    { label: "Branding",    icon: I_SPARK,   desc: "Voice, copy & UX polish",        starter: "Review branding and UX copy for a consistent voice and polish — flag awkward wording, inconsistencies, and off-brand phrasing, and suggest improved copy." },
+    billing:     { label: "Billing",     icon: I_CHART,   desc: "Costs vs income & subs",         starter: "Summarize subscription costs versus income, estimate current burn and margins, and flag anything unusual or worth optimizing." }
+  };
+  function titleCase(id) { return String(id || "").replace(/[-_]/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
+  function catMeta(id) {
+    id = String(id || "general");
+    var info = CAT_INFO[id];
+    if (info) return { id: id, label: info.label, icon: info.icon, desc: info.desc, starter: info.starter };
+    return { id: id, label: titleCase(id) || "General", icon: I_LAYERS };
+  }
+  function catBadge(id) {
+    var c = catMeta(id || "general");
+    if (c.id === "general") return ""; // the default area is unlabeled to keep cards calm
+    return '<span class="cat cat-' + esc(c.id) + '"><span class="cdot"></span>' + esc(c.label) + '</span>';
+  }
+
+  /* ---------- schedule formatting ---------- */
+  var DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function fmtClock(d) { return pad2(d.getHours()) + ":" + pad2(d.getMinutes()); }
+  function fmtDateTime(iso) { var d = new Date(iso); if (isNaN(d)) return ""; return MON[d.getMonth()] + " " + d.getDate() + ", " + fmtClock(d); }
+  function nextRunLabel(t) { var x = fmtIn(t.nextRun); return x ? ("next " + x) : ""; }
+
+  /* A schedule's time is a WALL CLOCK in the zone it was set in (operations.js
+     stores `tz` and fires against it, DST and all). Printing "09:00" with no zone
+     meant a routine set in Asia read as 09:00 to a phone in Europe — off by seven
+     hours and no way to tell. Every routine time now carries its zone. */
+  function deviceTz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; } }
+  function tzShort(tz) {
+    try {
+      var parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date());
+      for (var i = 0; i < parts.length; i++) if (parts[i].type === "timeZoneName") return parts[i].value;
+    } catch (e) { /* unknown zone id — fall through to the city */ }
+    return String(tz).split("/").pop().replace(/_/g, " ");
+  }
+  function tzSuffix(s) {
+    if (!s || !s.tz) return "";
+    var short = tzShort(s.tz);
+    // Same zone as this device: the offset alone is enough. Different zone: name
+    // the place too, because that is the number the reader has to convert.
+    if (s.tz === deviceTz()) return " " + short;
+    return " " + short + " (" + String(s.tz).split("/").pop().replace(/_/g, " ") + ")";
+  }
+  function recurLabel(s) {
+    if (!s) return "Scheduled";
+    // A one-off is stored as an ABSOLUTE instant, so fmtDateTime already renders
+    // it in the reader's own zone — label it with THIS device's offset. Daily and
+    // weekly store a wall clock plus the zone it was set in; those carry theirs.
+    if (s.type === "once") return "Once · " + fmtDateTime(s.at) + " " + tzShort(deviceTz());
+    if (s.type === "daily") return "Every day · " + s.time + tzSuffix(s);
+    if (s.type === "weekly") return "Every " + (DOW[s.day] || "?") + " · " + s.time + tzSuffix(s);
+    return "Scheduled";
+  }
+
+  /* ---------- API ---------- */
+  function refresh() { return api("GET", "/api/ops/tasks").then(function (d) { tasks = d.tasks || []; renderAll(); }); }
+  function loadProjects() {
+    return api("GET", "/api/projects").then(function (d) {
+      PROJECTS = (d.projects || []).map(function (p) { return p.name; });
+      renderFilters(); populateProjectSelect();
+    }).catch(function () {});
+  }
+  // The board's vocabulary, straight from the runner. Optional on purpose: a
+  // server without /api/ops/meta keeps the fallback constants above rather than
+  // showing an empty board.
+  function loadMeta() {
+    return UI.apiOptional("GET", "/api/ops/meta").then(function (m) {
+      if (!m) return;
+      if (Array.isArray(m.categories) && m.categories.length) CATS = m.categories;
+      if (typeof m.maxFix === "number") MAX_FIX = m.maxFix;
+      if (m.statuses) {
+        if (Array.isArray(m.statuses.done) && m.statuses.done.length) DONE_STATUSES = m.statuses.done;
+        if (Array.isArray(m.statuses.pipeline) && m.statuses.pipeline.length) PIPELINE_STATUSES = m.statuses.pipeline;
+        if (Array.isArray(m.statuses.retryable)) RETRY_STATUSES = m.statuses.retryable;
+      }
+      if (Array.isArray(m.projects)) META_PROJECTS = m.projects;
+      lastFeedSig = ""; lastDetailSig = "";   // the lanes may have just changed
+      renderCatPicks();
+      renderAll();
+    }).catch(function () { /* keep the fallbacks; the board still works */ });
+  }
+  // Populate the new-task model picker. createTask takes { model }; leaving it
+  // blank means "whatever the runner's default is", which is the honest default.
+  function loadModels() {
+    return UI.apiOptional("GET", "/api/models").then(function (d) {
+      if (!d) return;
+      var ms = (d.models || []);
+      sModel.innerHTML = "";
+      var auto = document.createElement("option");
+      auto.value = ""; auto.textContent = "Automatic (runner default)";
+      sModel.appendChild(auto);
+      ms.forEach(function (m) {
+        var o = document.createElement("option");
+        o.value = m.id;                                   // the ID, never the label
+        o.textContent = m.short || m.name || m.id;
+        sModel.appendChild(o);
+      });
+    }).catch(function () { /* the picker just stays on "Automatic" */ });
+  }
+
+  /* ---------- patch review (the human gate) ----------
+     GET /api/ops/tasks/:id/patch → { id, patch, truncated, bytes, files:[…] },
+     404 when there is nothing to show (no changes, or already applied/cleaned up)
+     — and the server's message says which, so it is shown verbatim. */
+  var openDiffs = {};   // task id -> true while its diff is expanded
+  var diffCache = {};   // task id -> { loading } | { error } | the patch payload
+  var DIFF_MAX_LINES = 1200;  // a 512 KB patch is ~10k lines; a phone should not
+                              // be asked to lay out 10k spans to answer "ship it?"
+
+  function canHavePatch(t) {
+    return t.status === "needs_approval" || t.status === "applied" || t.status === "shipped";
+  }
+  function loadPatch(id) {
+    diffCache[id] = { loading: true };
+    api("GET", "/api/ops/tasks/" + encodeURIComponent(id) + "/patch")
+      .then(function (d) { diffCache[id] = d; })
+      .catch(function (e) { diffCache[id] = { error: e.message }; })
+      .then(function () { lastFeedSig = ""; lastDetailSig = ""; renderAll(); });
+  }
+  function toggleDiff(id) {
+    openDiffs[id] = !openDiffs[id];
+    if (openDiffs[id] && !diffCache[id]) loadPatch(id);
+    lastFeedSig = ""; lastDetailSig = "";
+    renderAll();
+  }
+  // Colour is the only interpretation applied. Each line is escaped and printed
+  // as-is: a diff carries whatever the agent wrote into the files, so it must
+  // never reach innerHTML unescaped, and it must never be "prettified" either —
+  // the reader is approving these exact bytes.
+  function diffHtml(patch) {
+    var lines = String(patch || "").split("\n");
+    var cut = lines.length > DIFF_MAX_LINES;
+    if (cut) lines = lines.slice(0, DIFF_MAX_LINES);
+    var out = [];
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i], cls = "";
+      if (ln.charAt(0) === "+" && ln.slice(0, 3) !== "+++") cls = "add";
+      else if (ln.charAt(0) === "-" && ln.slice(0, 3) !== "---") cls = "del";
+      else if (ln.slice(0, 2) === "@@") cls = "hunk";
+      else if (/^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode|Binary files)/.test(ln)) cls = "meta";
+      out.push('<span class="dl ' + cls + '">' + esc(ln || " ") + "</span>");
+    }
+    if (cut) out.push('<span class="dl meta">… only the first ' + DIFF_MAX_LINES + ' lines are shown here.</span>');
+    return out.join("");
+  }
+  function fileSummary(d) {
+    var files = d.files || [];
+    if (!files.length) return "";
+    var h = '<div class="dfiles">';
+    files.forEach(function (f) {
+      var path = f.pathFrom ? (f.pathFrom + " → " + f.path) : f.path;
+      h += '<div class="dfile"><span class="dpath">' + esc(path) + '</span>' +
+        (f.binary ? '<span class="dbin">binary</span>'
+          : '<span class="dadd">+' + esc(String(f.added || 0)) + '</span><span class="ddel">−' + esc(String(f.removed || 0)) + '</span>') +
+        '</div>';
+    });
+    return h + '</div>';
+  }
+  function diffBlock(t) {
+    if (!canHavePatch(t)) return "";
+    var open = !!openDiffs[t.id];
+    var h = '<button class="detail-toggle" data-diff="1">' +
+      ic(I_CHEV, 13).replace("<svg", '<svg class="chev' + (open ? " up" : "") + '"') +
+      (open ? "Hide changes" : "Review changes") + "</button>";
+    if (!open) return h;
+    var d = diffCache[t.id];
+    if (!d || d.loading) return h + '<div class="diffbox"><div class="diff-note">Loading the diff…</div></div>';
+    if (d.error) return h + '<div class="diffbox"><div class="diff-note err">' + esc(d.error) + '</div></div>';
+    return h + '<div class="diffbox">' + fileSummary(d) +
+      '<pre class="diff">' + diffHtml(d.patch) + '</pre>' +
+      (d.truncated ? '<div class="diff-note">Shown truncated · ' + esc(UI.fmtBytes(d.bytes)) + ' in total. Approving applies the whole patch in one piece.</div>' : '') +
+      '</div>';
+  }
+
+  /* ---------- filters ---------- */
+  function renderFilters() {
+    filtersEl.innerHTML = "";
+    ["all"].concat(PROJECTS).forEach(function (p) {
+      var b = document.createElement("button");
+      b.className = "chip-f" + (p === activeFilter ? " active" : "");
+      b.textContent = p === "all" ? "All projects" : p;
+      b.addEventListener("click", function () { activeFilter = p; showAllDone = false; renderFilters(); renderAll(); });
+      filtersEl.appendChild(b);
+    });
+    // Keep the chosen project on screen after a re-render — otherwise picking
+    // the twelfth project scrolled the row back to "All projects" every time.
+    var on = filtersEl.querySelector(".chip-f.active");
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+    markFilterScroll();
+  }
+  // Drives the right-edge fade: it is on only while there is more row to reach,
+  // so it reads as "keep going" rather than as decoration.
+  function markFilterScroll() {
+    var max = filtersEl.scrollWidth - filtersEl.clientWidth;
+    filtersEl.setAttribute("data-scroll",
+      max <= 2 ? "none" : (filtersEl.scrollLeft >= max - 2 ? "end" : "more"));
+  }
+  filtersEl.addEventListener("scroll", markFilterScroll, { passive: true });
+  window.addEventListener("resize", markFilterScroll);
+
+  function visible() { return tasks.filter(function (t) { return activeFilter === "all" || t.project === activeFilter; }); }
+
+  /* ---------- cards ---------- */
+  function baseCard(t, cls) { var el = document.createElement("div"); el.className = "card " + cls; el.setAttribute("data-id", t.id); return el; }
+
+  var openDetails = {}; // task id -> true while its activity log is expanded
+  // Render the agent's recap: lead lines as paragraphs, "- " lines as a list.
+  function fmtSummary(s) {
+    var lead = [], items = [];
+    String(s || "").trim().split(/\n+/).forEach(function (ln) {
+      var m = ln.match(/^\s*[-*•]\s+(.*)$/);
+      if (m) items.push(m[1]); else if (ln.trim()) lead.push(ln.trim());
+    });
+    var html = lead.map(function (l) { return '<p class="sum-lead">' + esc(l) + "</p>"; }).join("");
+    if (items.length) html += '<ul class="sum-list">' + items.map(function (i) { return "<li>" + esc(i) + "</li>"; }).join("") + "</ul>";
+    return html || esc(s);
+  }
+  // Summary shown by default; the full thinking/activity sits behind a toggle.
+  function summaryBlock(t) {
+    var html = t.summary ? '<div class="sum">' + fmtSummary(t.summary) + "</div>" : "";
+    if (t.detail) {
+      var open = !!openDetails[t.id];
+      html += '<button class="detail-toggle" data-detail="1">' +
+        ic(I_CHEV, 13).replace("<svg", '<svg class="chev' + (open ? " up" : "") + '"') +
+        (open ? "Hide activity" : "Show activity") + "</button>";
+      if (open) html += '<div class="detail-text">' + esc(t.detail) + "</div>";
+    }
+    return html;
+  }
+  function approvalCard(t) {
+    var el = baseCard(t, "approval");
+    el.innerHTML =
+      '<div class="card-top">' + catBadge(t.category) + tagHtml(t) + '<span class="card-time">' + fmtAgo(t.finishedAt) + '</span></div>' +
+      '<div class="card-title">' + esc(firstLine(t.prompt)) + '</div>' +
+      summaryBlock(t) +
+      diffStat(t.diff) +
+      diffBlock(t) +
+      '<div class="card-actions">' +
+        '<button class="btn btn-danger" data-action="reject">' + ic(I_X, 14) + 'Reject</button>' +
+        acceptBtn(t) +
+      '</div>';
+    return el;
+  }
+  function runningCard(t) {
+    var el = baseCard(t, "running");
+    el.innerHTML =
+      '<div class="card-top">' + catBadge(t.category) + tagHtml(t, true) + '<span class="card-time">running</span></div>' +
+      '<div class="card-title">' + esc(firstLine(t.prompt)) + '</div>' +
+      '<div class="step">' + ic(I_SPIN, 13).replace("<svg", '<svg class="ui-spin"') + '<span class="steptext">' + esc(lastStep(t)) + '</span></div>' +
+      '<div class="card-actions"><button class="btn btn-ghost" data-action="cancel">' + ic(I_X, 14) + 'Cancel run</button></div>';
+    return el;
+  }
+  // The autonomous verify→ship phase: tests are running, a fix-up pass is in
+  // flight, or the change is being committed + pushed. No buttons — it drives
+  // itself; the operator just watches it land (or fail into history).
+  function pipelinePhase(t) {
+    if (t.status === "verifying") return "Running the test suite…";
+    if (t.status === "fixing") return "Repairing failing tests — attempt " + (t.fixAttempts || 1) + "/" + MAX_FIX + "…";
+    return "Committing & pushing — deploy underway…";
+  }
+  function pipelineCard(t) {
+    var el = baseCard(t, "pipeline");
+    // Cancel is cooperative during verify/fix (the server stops at the next stage
+    // boundary, keeping applied edits in the tree); once shipping there's nothing
+    // safe to interrupt, so no button then.
+    var canCancel = (t.status === "verifying" || t.status === "fixing");
+    el.innerHTML =
+      '<div class="card-top">' + catBadge(t.category) + tagHtml(t, true) + '<span class="card-time">' + esc(statusMeta(t.status).txt.toLowerCase()) + '</span></div>' +
+      '<div class="card-title">' + esc(firstLine(t.prompt)) + '</div>' +
+      '<div class="step">' + ic(I_SPIN, 13).replace("<svg", '<svg class="ui-spin"') + '<span class="steptext">' + esc(pipelinePhase(t)) + '</span></div>' +
+      (canCancel ? '<div class="card-actions"><button class="btn btn-ghost" data-action="cancel">' + ic(I_X, 14) + 'Cancel run</button></div>' : '');
+    return el;
+  }
+  function queuedCard(t) {
+    var el = baseCard(t, "queued");
+    el.innerHTML =
+      '<div class="card-top">' + catBadge(t.category) + tagHtml(t) + (t.routineId ? '<span class="recur">' + ic(I_CLOCK, 12) + 'routine</span>' : '') + '<span class="card-time">' + fmtAgo(t.createdAt) + '</span></div>' +
+      '<div class="card-title">' + esc(firstLine(t.prompt)) + '</div>' +
+      '<div class="card-actions">' +
+        '<button class="btn btn-ghost" data-action="delete">' + ic(I_TRASH, 14) + 'Delete</button>' +
+        '<button class="btn grow" data-action="edit">' + ic(I_EDIT, 14) + 'Modify</button>' +
+      '</div>';
+    return el;
+  }
+  function doneCard(t) {
+    var el = baseCard(t, "done");
+    var m = statusMeta(t.status);
+    var failed = isFailed(t);
+    var showsDiff = (t.status === "applied" || t.status === "shipped");
+    el.innerHTML =
+      '<div class="card-top">' + catBadge(t.category) + tagHtml(t) + '<span class="pill ' + m.cls + '"><span class="pdot"></span>' + esc(m.txt) + '</span><span class="card-time">' + fmtAgo(t.finishedAt) + '</span></div>' +
+      '<div class="card-title">' + esc(firstLine(t.prompt)) + '</div>' +
+      (failed && t.error ? '<div class="err-text">' + esc(t.error) + '</div>' : '') +
+      (t.status === "shipped" ? shipLine(t) : '') +
+      summaryBlock(t) +
+      (showsDiff ? diffStat(t.diff) : '') +
+      (failed && t.testOutput ? '<pre class="testout">' + esc(t.testOutput) + '</pre>' : '') +
+      (showsDiff ? diffBlock(t) : '') +
+      '<div class="card-actions"><button class="btn btn-ghost" data-action="delete">' + ic(I_TRASH, 14) + 'Dismiss</button>' +
+        (canRetry(t) ? retryBtn() : '') + '</div>';
+    return el;
+  }
+  function scheduledCard(t) {
+    var el = baseCard(t, "sched");
+    el.innerHTML =
+      '<div class="card-top">' + catBadge(t.category) + tagHtml(t) + '<span class="nextrun">' + esc(nextRunLabel(t)) + '</span></div>' +
+      '<div class="card-title">' + esc(firstLine(t.prompt)) + '</div>' +
+      '<div class="sched-meta"><span class="recur">' + ic(I_CLOCK, 12) + esc(recurLabel(t.schedule)) + '</span></div>' +
+      '<div class="card-actions">' +
+        '<button class="btn btn-ghost" data-action="delete">' + ic(I_TRASH, 14) + 'Delete</button>' +
+        '<button class="btn" data-action="edit">' + ic(I_EDIT, 14) + 'Modify</button>' +
+        '<button class="btn btn-primary grow" data-action="run">' + ic(I_PLAY, 14) + 'Run now</button>' +
+      '</div>';
+    return el;
+  }
+
+  /* ---------- detail pane (desktop master–detail) ---------- */
+  // Status-appropriate action buttons for the detail pane. Reuses the same
+  // data-action values as the cards, so the existing act() handler drives them.
+  function detailActions(t) {
+    switch (t.status) {
+      case "needs_approval":
+        return '<button class="btn btn-danger" data-action="reject">' + ic(I_X, 14) + 'Reject</button>' + acceptBtn(t);
+      case "running":
+        return '<button class="btn btn-ghost" data-action="cancel">' + ic(I_X, 14) + 'Cancel run</button>';
+      case "queued":
+        return '<button class="btn btn-ghost" data-action="delete">' + ic(I_TRASH, 14) + 'Delete</button>' +
+               '<button class="btn grow" data-action="edit">' + ic(I_EDIT, 14) + 'Modify</button>';
+      case "scheduled":
+        return '<button class="btn btn-ghost" data-action="delete">' + ic(I_TRASH, 14) + 'Delete</button>' +
+               '<button class="btn" data-action="edit">' + ic(I_EDIT, 14) + 'Modify</button>' +
+               '<button class="btn btn-primary grow" data-action="run">' + ic(I_PLAY, 14) + 'Run now</button>';
+      case "verifying": case "fixing":
+        return '<span class="step" style="opacity:.85">' + ic(I_SPIN, 13).replace("<svg", '<svg class="ui-spin"') + '<span>Working autonomously…</span></span>' +
+               '<button class="btn btn-ghost" data-action="cancel">' + ic(I_X, 14) + 'Cancel run</button>';
+      case "shipping":
+        return '<span class="step" style="opacity:.85">' + ic(I_SPIN, 13).replace("<svg", '<svg class="ui-spin"') + '<span>Working autonomously…</span></span>';
+      default:
+        return '<button class="btn btn-ghost" data-action="delete">' + ic(I_TRASH, 14) + 'Dismiss</button>' +
+               (canRetry(t) ? retryBtn() : '');
+    }
+  }
+  function detailPane(t) {
+    if (!t) return '<div class="dp-empty">' + ic(I_LAYERS, 30) + '<p>Select a task to see its full prompt, summary, diff and activity.</p></div>';
+    var live = (t.status === "running" || PIPELINE_STATUSES.indexOf(t.status) >= 0);
+    var m = statusMeta(t.status);
+    var when = t.finishedAt ? fmtAgo(t.finishedAt)
+      : (live && t.startedAt) ? "started " + fmtAgo(t.startedAt)
+      : t.nextRun ? esc(nextRunLabel(t)) : fmtAgo(t.createdAt);
+    var failed = isFailed(t);
+    var h = '<div class="dp">';
+    h += '<div class="dp-head">' + catBadge(t.category) + tagHtml(t, live) +
+      '<span class="pill ' + m.cls + '"><span class="pdot"></span>' + esc(m.txt) + '</span>' +
+      '<span class="dp-time">' + when + '</span></div>';
+    h += '<h2 class="dp-title">' + esc(firstLine(t.prompt)) + '</h2>';
+    h += '<div class="dp-block"><div class="dp-label">Task</div><div class="dp-prompt">' + esc(t.prompt) + '</div></div>';
+    if (t.schedule) {
+      h += '<div class="dp-block"><div class="dp-label">Schedule</div><div class="sched-meta">' +
+        '<span class="recur">' + ic(I_CLOCK, 12) + esc(recurLabel(t.schedule)) + '</span>' +
+        (t.nextRun ? '<span class="nextrun">' + esc(nextRunLabel(t)) + '</span>' : '') + '</div></div>';
+    }
+    if (live) {
+      var phase = t.status === "running" ? lastStep(t) : pipelinePhase(t);
+      h += '<div class="dp-block"><div class="step">' + ic(I_SPIN, 13).replace("<svg", '<svg class="ui-spin"') + '<span>' + esc(phase) + '</span></div></div>';
+    }
+    if (t.status === "shipped") h += '<div class="dp-block">' + shipLine(t) + '</div>';
+    if (t.summary) h += '<div class="dp-block"><div class="dp-label">Summary</div><div class="sum">' + fmtSummary(t.summary) + '</div></div>';
+    if (canHavePatch(t)) {
+      h += '<div class="dp-block"><div class="dp-label">Changes</div>' +
+        (t.diff ? diffStat(t.diff) : '') + diffBlock(t) + '</div>';
+    }
+    if (failed && t.error) h += '<div class="dp-block"><div class="dp-label">What went wrong</div><div class="err-text">' + esc(t.error) + '</div></div>';
+    if (t.testOutput) h += '<div class="dp-block"><div class="dp-label">Test results</div><pre class="testout">' + esc(t.testOutput) + '</pre></div>';
+    if (t.detail) h += '<div class="dp-block"><div class="dp-label">Notes</div><div class="detail-text" style="max-height:none">' + esc(t.detail) + '</div></div>';
+    h += liveSignalsBlock(t);
+    h += crossAreaBlock(t);
+    if (t.log && t.log.length) h += '<div class="dp-block"><div class="dp-label">Activity</div><div class="dp-activity">' + t.log.map(evLine).join("") + '</div></div>';
+    h += '<div class="dp-block"><div class="dp-actions">' + detailActions(t) + '</div></div>';
+    h += '</div>';
+    return h;
+  }
+  // Pick the most important visible task to show when nothing is selected.
+  function pickDefault(vis) {
+    var order = ["needs_approval", "verifying", "fixing", "shipping", "running", "scheduled", "queued"];
+    for (var i = 0; i < order.length; i++) {
+      var f = vis.find(function (t) { return t.status === order[i]; });
+      if (f) return f.id;
+    }
+    var done = vis.filter(function (t) { return DONE_STATUSES.indexOf(t.status) >= 0; })
+      .sort(function (a, b) { return (a.finishedAt || "") < (b.finishedAt || "") ? 1 : -1; });
+    return done.length ? done[0].id : null;
+  }
+  // Render the right pane (only rebuilds when the selected task's content
+  // changed, so a long test log doesn't reset its scroll every poll) and keep
+  // the matching list card highlighted.
+  function renderDetail() {
+    var t = selectedId ? find(selectedId) : null;
+    var sig = t ? [t.id, t.status, (t.log || []).length, t.finishedAt, (t.summary || "").length,
+      (t.detail || "").length, (t.testOutput || "").length, t.shipCommit, t.nextRun,
+      (t.handoffs || []).length, (t.contextNotes || []).length,
+      openDiffs[t.id] ? 1 : 0, diffCache[t.id] ? (diffCache[t.id].loading ? "L" : (diffCache[t.id].error ? "E" : "D")) : "",
+      t.liveSignals ? (t.liveSignals.ok ? "ls" + (t.liveSignals.total || 0) : "lsx") : ""].join("|") : "none";
+    if (sig !== lastDetailSig) {
+      // Expanding a diff (or a log line arriving) rebuilds this pane. Put the
+      // reader back where they were instead of throwing them to the top.
+      var dTop = detail.scrollTop;
+      detail.innerHTML = detailPane(t);
+      lastDetailSig = sig;
+      detail.scrollTop = Math.min(dTop, Math.max(0, detail.scrollHeight - detail.clientHeight));
+    }
+    var prev = feed.querySelector(".card.selected");
+    if (prev) prev.classList.remove("selected");
+    if (selectedId) {
+      var c = feed.querySelector('.card[data-id="' + selectedId + '"]');
+      if (c) c.classList.add("selected");
+    }
+  }
+
+  /* ---------- feed sections ---------- */
+  function buildSection(title, cls, arr, builder) {
+    var sec = document.createElement("section");
+    sec.className = "feed-sec " + cls;
+    var head = document.createElement("div");
+    head.className = "sec-head";
+    head.innerHTML = '<span class="dotmark"></span><h2>' + title + '</h2><span class="count">' + arr.length + '</span>';
+    var lane = document.createElement("div");
+    lane.className = "lane";
+    arr.forEach(function (t) { lane.appendChild(builder(t)); });
+    sec.appendChild(head); sec.appendChild(lane);
+    return sec;
+  }
+  function buildHistory(arr) {
+    arr = arr.slice().sort(function (a, b) {
+      var x = a.finishedAt || "", y = b.finishedAt || "";
+      return x < y ? 1 : (x > y ? -1 : 0); // newest first
+    });
+    var sec = document.createElement("section");
+    sec.className = "feed-sec done";
+    var head = document.createElement("div");
+    head.className = "sec-head";
+    head.innerHTML = '<span class="dotmark"></span><h2>Recently completed</h2><span class="count">' + arr.length + '</span>';
+    var lane = document.createElement("div");
+    lane.className = "lane";
+    var shown = showAllDone ? arr : arr.slice(0, DONE_PREVIEW);
+    shown.forEach(function (t) { lane.appendChild(doneCard(t)); });
+    if (arr.length > DONE_PREVIEW) {
+      var more = document.createElement("button");
+      more.className = "more-btn";
+      more.setAttribute("data-more", "1");
+      more.textContent = showAllDone ? "Show less" : ("Show " + (arr.length - DONE_PREVIEW) + " more");
+      lane.appendChild(more);
+    }
+    sec.appendChild(head); sec.appendChild(lane);
+    return sec;
+  }
+
+  /* ---------- empty state ---------- */
+  function emptyState() {
+    var wrap = document.createElement("div");
+    wrap.className = "empty-state";
+    var proj = activeFilter !== "all" ? activeFilter : null;
+    var title = proj ? "Nothing running for " + esc(proj) : "Operations";
+    var blurb = proj
+      ? "No tasks here yet. Pick a focus to plan a routine for this project, or run a one-off check now."
+      : "PlumiChat keeps watch over your projects — auditing, fixing, and improving on a schedule. Pick a focus to plan a routine, or run a one-off check now.";
+    var cells = CATS.filter(function (id) { return id !== "general"; }).map(function (id) {
+      var c = catMeta(id);
+      return '<button class="qs" data-area="' + esc(c.id) + '">' +
+        '<span class="qs-ic cat-' + esc(c.id) + '">' + ic(c.icon, 17) + '</span>' +
+        '<span class="qs-body"><span class="qs-name">' + esc(c.label) + '</span>' +
+        '<span class="qs-desc">' + esc(c.desc || ("Work tagged " + c.label.toLowerCase())) + '</span></span></button>';
+    }).join("");
+    wrap.innerHTML =
+      '<div class="hero"><div class="hero-mark">' + ic(I_LAYERS, 26) + '</div>' +
+        '<h2>' + title + '</h2><p>' + blurb + '</p></div>' +
+      '<div class="qs-label">Start with a focus area</div>' +
+      '<div class="qs-grid">' + cells + '</div>' +
+      '<button class="custom-link" data-area="general">Or write a custom task →</button>';
+    return wrap;
+  }
+
+  // A cheap fingerprint of everything the feed actually draws — deliberately
+  // EXCLUDES relative timestamps so an otherwise-idle board doesn't rebuild (and
+  // flicker) every poll. Live work (a running task's log growing, a status
+  // transition, a fix-up attempt) still changes the signature and re-renders.
+  function feedSig(vis) {
+    var parts = vis.map(function (t) {
+      var d = t.diff;
+      return [t.id, t.status, t.fixAttempts || 0, (t.log || []).length,
+        t.category || "", t.prompt || "",
+        t.summary ? t.summary.length : 0, t.detail ? t.detail.length : 0,
+        d ? (d.files + "/" + d.additions + "/" + d.deletions) : "",
+        t.error ? 1 : 0, t.schedule ? JSON.stringify(t.schedule) : "",
+        t.nextRun || "", openDetails[t.id] ? 1 : 0,
+        openDiffs[t.id] ? 1 : 0, diffCache[t.id] ? (diffCache[t.id].loading ? "L" : (diffCache[t.id].error ? "E" : "D")) : ""].join("~");
+    });
+    return parts.join("|") + "@" + activeFilter + "@" + (showAllDone ? 1 : 0);
+  }
+
+  function renderAll() {
+    var vis = visible();
+    var sig = feedSig(vis);
+    if (sig === lastFeedSig) { renderDetail(); return; } // nothing drew differently
+    lastFeedSig = sig;
+    var sc = vis.filter(function (t) { return t.status === "scheduled"; })
+      .sort(function (a, b) { return (a.nextRun || "") < (b.nextRun || "") ? -1 : 1; });
+    var ap = vis.filter(function (t) { return t.status === "needs_approval"; });
+    var ru = vis.filter(function (t) { return t.status === "running"; });
+    var pl = vis.filter(function (t) { return PIPELINE_STATUSES.indexOf(t.status) >= 0; });
+    var qu = vis.filter(function (t) { return t.status === "queued"; });
+    var dn = vis.filter(function (t) { return DONE_STATUSES.indexOf(t.status) >= 0; });
+
+    // Same reason as renderDetail: tapping "Review changes" on the third card
+    // must not scroll the board back to the first one.
+    var keepTop = feed.scrollTop;
+    feed.innerHTML = "";
+    if (ap.length + ru.length + pl.length + sc.length + qu.length + dn.length === 0) {
+      feed.appendChild(emptyState());
+    } else {
+      if (ap.length) feed.appendChild(buildSection("Needs your review", "approval", ap, approvalCard));
+      if (ru.length) feed.appendChild(buildSection("Running now", "running", ru, runningCard));
+      if (pl.length) feed.appendChild(buildSection("Verifying & shipping", "pipeline", pl, pipelineCard));
+      if (sc.length) feed.appendChild(buildSection("Scheduled", "scheduled", sc, scheduledCard));
+      if (qu.length) feed.appendChild(buildSection("Queued", "queued", qu, queuedCard));
+      if (dn.length) feed.appendChild(buildHistory(dn));
+    }
+    if (keepTop) feed.scrollTop = Math.min(keepTop, Math.max(0, feed.scrollHeight - feed.clientHeight));
+    // Keep the detail selection valid; otherwise auto-pick the top task.
+    if (!selectedId || !find(selectedId)) selectedId = pickDefault(vis);
+    renderDetail();
+    updateOverview(vis);
+  }
+
+  function updateOverview(vis) {
+    var run = 0, ap = 0, sh = 0, qu = 0, sc = 0;
+    vis.forEach(function (t) {
+      if (t.status === "running") run++;
+      else if (t.status === "needs_approval") ap++;
+      else if (PIPELINE_STATUSES.indexOf(t.status) >= 0) sh++;
+      else if (t.status === "queued") qu++;
+      else if (t.status === "scheduled") sc++;
+    });
+    var bits = [];
+    if (run) bits.push('<span class="live">● ' + run + ' running</span>');
+    if (sh) bits.push('<span class="ship">● ' + sh + ' shipping</span>');
+    if (ap) bits.push('<span class="warn">' + ap + ' to review</span>');
+    if (qu) bits.push(qu + " queued");
+    if (sc) bits.push(sc + " scheduled");
+    headStatus.innerHTML = bits.length ? bits.join(" · ") : "All clear";
+  }
+
+  /* ---------- actions ---------- */
+  function find(id) { return tasks.find(function (t) { return t.id === id; }); }
+  feed.addEventListener("click", function (e) {
+    var qs = e.target.closest("[data-area]");
+    if (qs) { openSheetForArea(qs.getAttribute("data-area")); return; }
+    var more = e.target.closest("[data-more]");
+    if (more) { showAllDone = !showAllDone; renderAll(); return; }
+    var dt = e.target.closest("[data-detail]");
+    var dCard = e.target.closest("[data-id]");
+    if (dt && dCard) { var did = dCard.getAttribute("data-id"); openDetails[did] = !openDetails[did]; lastFeedSig = ""; renderAll(); return; }
+    var df = e.target.closest("[data-diff]");
+    if (df && dCard) { toggleDiff(dCard.getAttribute("data-id")); return; }
+    var btn = e.target.closest("[data-action]");
+    var card = e.target.closest("[data-id]");
+    // Any click on a card selects it (fills the detail pane on desktop).
+    if (card) { selectedId = card.getAttribute("data-id"); renderDetail(); }
+    if (btn && card) act(btn.getAttribute("data-action"), card.getAttribute("data-id"), btn);
+  });
+
+  // The detail pane drives the same actions for the selected task.
+  detail.addEventListener("click", function (e) {
+    if (!selectedId) return;
+    if (e.target.closest("[data-diff]")) { toggleDiff(selectedId); return; }
+    var btn = e.target.closest("[data-action]");
+    if (btn) act(btn.getAttribute("data-action"), selectedId, btn);
+  });
+
+  function act(action, id, btn) {
+    var t = find(id); if (!t) return;
+    if (action === "edit") { openSheet("edit", t); return; }
+    if (btn) btn.disabled = true;
+    var p;
+    if (action === "accept") p = api("POST", "/api/ops/tasks/" + id + "/accept").then(function (r) { toast("ok", (r && r.verifying) ? "Approved — verifying tests, then shipping" : ("Applied to " + t.project + " — review & commit when ready")); });
+    else if (action === "reject") p = api("POST", "/api/ops/tasks/" + id + "/reject").then(function () { toast("info", "Rejected — changes discarded"); });
+    else if (action === "cancel") p = api("POST", "/api/ops/tasks/" + id + "/cancel").then(function () { toast("info", "Cancelling run…"); });
+    else if (action === "run") p = api("POST", "/api/ops/tasks/" + id + "/run").then(function () { toast("ok", "Running now…"); });
+    // Retry drives the SAME route: runNow() decides whether this status may be
+    // re-run and, when it refuses, throws a sentence written for the operator
+    // ("this task's changes are already in your working tree — …"). That sentence
+    // is far too long and too important for a 2.6s toast, so it gets a dialog and
+    // is shown exactly as the server wrote it.
+    else if (action === "retry") {
+      p = api("POST", "/api/ops/tasks/" + id + "/run")
+        .then(function () { toast("ok", "Retrying…"); })
+        .catch(function (err) {
+          if (btn) btn.disabled = false;
+          alertSheet("Can't retry this one", err.message);
+          err.handled = true;   // the tail below must not toast it a second time
+          throw err;
+        });
+    }
+    else if (action === "delete") {
+      // A run spawned by a recurring routine: deleting the run alone leaves the
+      // routine creating new ones. Offer to stop the routine instead.
+      var routine = t.routineId ? find(t.routineId) : null;
+      var recurring = routine && routine.schedule && routine.schedule.type && routine.schedule.type !== "once";
+      if (recurring) { confirmRoutineDelete(t, routine, btn); return; }
+      p = api("DELETE", "/api/ops/tasks/" + id).then(function () { toast("info", "Removed"); });
+    }
+    else return;
+    p.then(refresh).catch(function (err) {
+      if (btn) btn.disabled = false;
+      if (err && err.handled) return;   // already explained in a dialog
+      toast("bad", err.message);
+    });
+  }
+
+  /* ---------- sheet ---------- */
+  var sheetEl = document.getElementById("sheet");
+  var sheetOverlay = document.getElementById("sheetOverlay");
+  var sheet = UI.sheet(sheetEl, sheetOverlay);   // drives .open / .settled
+  var sheetTitle = document.getElementById("sheetTitle");
+  var sheetSub = document.getElementById("sheetSub");
+  var sheetSubmit = document.getElementById("sheetSubmit");
+  var sProject = document.getElementById("sProject");
+  var sPrompt = document.getElementById("sPrompt");
+  var sModel = document.getElementById("sModel");
+  var sModelNote = document.getElementById("sModelNote");
+  var catGrid = document.getElementById("catGrid");
+  var schedSeg = document.getElementById("schedSeg");
+  var whenBlocks = { once: document.getElementById("whenOnce"), daily: document.getElementById("whenDaily"), weekly: document.getElementById("whenWeekly") };
+  var schedAt = document.getElementById("schedAt");
+  var schedTimeD = document.getElementById("schedTimeD");
+  var schedTimeW = document.getElementById("schedTimeW");
+  var schedDay = document.getElementById("schedDay");
+  var schedTzNote = document.getElementById("schedTzNote");
+  var sheetMode = "new", sheetTargetId = null;
+  var schedWhen = "now", schedCat = "general";
+
+  function populateProjectSelect() {
+    var prev = sProject.value;
+    sProject.innerHTML = "";
+    PROJECTS.forEach(function (p) { var o = document.createElement("option"); o.value = p; o.textContent = p; sProject.appendChild(o); });
+    if (prev && PROJECTS.indexOf(prev) >= 0) sProject.value = prev;
+  }
+
+  /* ---------- sheet: area + schedule controls ---------- */
+  function renderCatPicks() {
+    catGrid.innerHTML = "";
+    CATS.forEach(function (id) {
+      var c = catMeta(id);
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "cat-pick" + (c.id === schedCat ? " on" : "");
+      b.setAttribute("data-cat", c.id);
+      b.innerHTML = '<span class="cdot cat-' + esc(c.id) + '" style="background:currentColor"></span>' + esc(c.label);
+      catGrid.appendChild(b);
+    });
+  }
+  function setWhen(w) {
+    schedWhen = w;
+    Array.prototype.forEach.call(schedSeg.children, function (b) { b.classList.toggle("on", b.getAttribute("data-when") === w); });
+    Object.keys(whenBlocks).forEach(function (k) { whenBlocks[k].hidden = (k !== w); });
+    if (w === "once" && !schedAt.value) {
+      var d = new Date(Date.now() + 3600 * 1000); // default: an hour from now
+      schedAt.value = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + "T" + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+    }
+    updateSubmitLabel();
+  }
+  function updateSubmitLabel() {
+    sheetSubmit.textContent = (schedWhen === "now")
+      ? (sheetMode === "new" ? "Queue request" : "Save changes")
+      : (sheetMode === "new" ? "Schedule task" : "Save schedule");
+  }
+  // Build the schedule object the API expects (or null for "run now").
+  function currentSchedule() {
+    if (schedWhen === "now") return null;
+    // Send this device's timezone so the time means the wall clock the user sees,
+    // not the server's. The server fires at that zone's time (DST-correct).
+    var tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "";
+    if (schedWhen === "once") {
+      if (!schedAt.value) throw new Error("Pick a date and time");
+      return { type: "once", at: schedAt.value, tz: tz };
+    }
+    if (schedWhen === "daily") return { type: "daily", time: schedTimeD.value || "09:00", tz: tz };
+    return { type: "weekly", day: Number(schedDay.value), time: schedTimeW.value || "09:00", tz: tz };
+  }
+  function toLocalInput(iso) {
+    var d = new Date(iso); if (isNaN(d)) return "";
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + "T" + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+  function openSheet(mode, t) {
+    sheetMode = mode; sheetTargetId = t ? t.id : null;
+    if (mode === "new") {
+      sheetTitle.textContent = "New request";
+      sheetSub.textContent = "Describe a task — run it now, or set it on a schedule.";
+      sProject.value = activeFilter !== "all" ? activeFilter : (PROJECTS[0] || "");
+      sPrompt.value = "";
+      sModel.value = ""; sModel.disabled = false; sModelNote.hidden = true;
+      schedTzNote.hidden = true;
+      schedCat = "general";
+      schedAt.value = ""; schedTimeD.value = "09:00"; schedTimeW.value = "09:00"; schedDay.value = "1";
+      setWhen("now");
+    } else {
+      var sched = t.schedule;
+      sheetTitle.textContent = sched ? "Edit routine" : "Modify request";
+      sheetSub.textContent = sched ? "Update this scheduled routine." : "Update the queued task before it runs.";
+      sProject.value = t.project;
+      sPrompt.value = t.prompt;
+      schedCat = t.category || "general";
+      schedAt.value = sched && sched.type === "once" ? toLocalInput(sched.at) : "";
+      schedTimeD.value = sched && sched.type === "daily" ? sched.time : "09:00";
+      schedTimeW.value = sched && sched.type === "weekly" ? sched.time : "09:00";
+      schedDay.value = sched && sched.type === "weekly" ? String(sched.day) : "1";
+      // editTask does not accept `model`, so show the task's and lock it rather
+      // than offering a control whose change would be silently dropped.
+      sModel.value = t.model || "";
+      if (t.model && sModel.value !== t.model) {
+        var o = document.createElement("option");
+        o.value = t.model; o.textContent = t.model;
+        sModel.appendChild(o); sModel.value = t.model;
+      }
+      sModel.disabled = true; sModelNote.hidden = false;
+      // A routine set in another zone re-anchors to THIS device when saved (the
+      // sheet can only send one tz — this one). Say so before they hit Save.
+      if (sched && sched.tz && sched.type !== "once" && sched.tz !== deviceTz()) {
+        schedTzNote.textContent = "Set in " + sched.tz + ". Saving re-anchors it to this device's time zone (" + deviceTz() + ").";
+        schedTzNote.hidden = false;
+      } else { schedTzNote.hidden = true; }
+      setWhen(sched ? sched.type : "now");
+    }
+    renderCatPicks();
+    updateSubmitLabel();
+    sheet.open();
+    setTimeout(function () { sPrompt.focus(); }, 180);
+  }
+  // Open the sheet primed for a focus area (from an empty-state quick-start).
+  function openSheetForArea(id) {
+    var c = catMeta(id);
+    openSheet("new", null);
+    schedCat = id;
+    if (c.starter) { sPrompt.value = c.starter; }
+    renderCatPicks();
+  }
+  function closeSheet() { sheet.close(); }
+  function submitSheet() {
+    var prompt = sPrompt.value.trim();
+    if (!prompt) { sPrompt.focus(); return; }
+    var proj = sProject.value;
+    if (!proj) { toast("bad", "No project available"); return; }
+    var schedule;
+    try { schedule = currentSchedule(); } catch (err) { toast("bad", err.message); return; }
+    var body = { project: proj, prompt: prompt, category: schedCat, schedule: schedule };
+    // createTask takes { model }; editTask ignores it, so it is only ever sent on
+    // create — an ignored field would look like a working control that does nothing.
+    if (sheetMode === "new" && sModel.value) body.model = sModel.value;
+    var okMsg = schedule ? "Routine scheduled" : "Request queued";
+    sheetSubmit.disabled = true;
+    var p = sheetMode === "new"
+      ? api("POST", "/api/ops/tasks", body).then(function () { toast("ok", okMsg); })
+      : api("PATCH", "/api/ops/tasks/" + sheetTargetId, body).then(function () { toast("info", "Request updated"); });
+    p.then(function () { closeSheet(); return refresh(); })
+      .catch(function (err) { toast("bad", err.message); })
+      .then(function () { sheetSubmit.disabled = false; });
+  }
+
+  document.getElementById("newBtn").addEventListener("click", function () { openSheet("new", null); });
+  document.getElementById("sheetCancel").addEventListener("click", closeSheet);
+  sheetSubmit.addEventListener("click", submitSheet);
+  schedSeg.addEventListener("click", function (e) { var b = e.target.closest("[data-when]"); if (b) setWhen(b.getAttribute("data-when")); });
+  catGrid.addEventListener("click", function (e) { var b = e.target.closest("[data-cat]"); if (!b) return; schedCat = b.getAttribute("data-cat"); renderCatPicks(); });
+
+  /* ---------- confirm dialog ---------- */
+  var confirmOverlay = document.getElementById("confirmOverlay");
+  var confirmSheet = document.getElementById("confirmSheet");
+  var confirmTitle = document.getElementById("confirmTitle");
+  var confirmSub = document.getElementById("confirmSub");
+  var confirmActions = document.getElementById("confirmActions");
+  var confirmResolve = null;
+  // Dismissing by overlay tap or Escape must settle the pending promise, or the
+  // caller's .then() never runs and the button it disabled stays disabled.
+  var confirmSheetCtl = UI.sheet(confirmSheet, confirmOverlay, {
+    onClose: function () { var r = confirmResolve; confirmResolve = null; if (r) r(null); }
+  });
+  function closeConfirm(val) {
+    confirmSheetCtl.close(true);      // silent: we settle the promise ourselves
+    var r = confirmResolve; confirmResolve = null;
+    if (r) r(val == null ? null : val);
+  }
+  // opts: { title, sub (HTML), actions:[{key,label,cls,grow}] } → resolves to the
+  // chosen key, or null if dismissed (overlay/Escape).
+  function confirmChoice(opts) {
+    confirmTitle.textContent = opts.title || "Confirm";
+    confirmSub.innerHTML = opts.sub || "";
+    confirmActions.innerHTML = "";
+    (opts.actions || []).forEach(function (a) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn " + (a.cls || "") + (a.grow ? " grow" : "");
+      b.textContent = a.label;
+      b.addEventListener("click", function () { closeConfirm(a.key); });
+      confirmActions.appendChild(b);
+    });
+    confirmSheetCtl.open();
+    return new Promise(function (resolve) { confirmResolve = resolve; });
+  }
+  // A refusal from the server, shown in full. The ops runner writes its refusals
+  // as sentences meant for a human ("re-running would duplicate the work"); a
+  // toast truncates them on a phone, so they get the dialog and nothing else.
+  function alertSheet(title, msg) {
+    return confirmChoice({
+      title: title,
+      sub: esc(msg || ""),
+      actions: [{ key: "ok", label: "OK", cls: "btn-primary", grow: true }]
+    });
+  }
+
+  // Deleting a routine-spawned run: ask whether to also stop the routine. "Stop
+  // routine" deletes the routine (the server cascades to its pending children),
+  // then removes this run too if it wasn't already swept up.
+  function confirmRoutineDelete(run, routine, btn) {
+    confirmChoice({
+      title: "Stop the routine too?",
+      sub: "This run was created by a recurring routine (" + esc(recurLabel(routine.schedule)) + "). Deleting just this run won't stop it — the routine will keep creating new runs.",
+      actions: [
+        { key: "cancel", label: "Cancel", cls: "btn-ghost" },
+        { key: "one", label: "Delete run only" },
+        { key: "stop", label: "Stop routine", cls: "btn-danger", grow: true }
+      ]
+    }).then(function (choice) {
+      if (!choice || choice === "cancel") { if (btn) btn.disabled = false; return; }
+      if (choice === "one") {
+        api("DELETE", "/api/ops/tasks/" + run.id)
+          .then(function () { toast("info", "Run removed — routine still active"); })
+          .then(refresh)
+          .catch(function (err) { if (btn) btn.disabled = false; toast("bad", err.message); });
+        return;
+      }
+      api("DELETE", "/api/ops/tasks/" + routine.id)
+        .then(function () { return api("DELETE", "/api/ops/tasks/" + run.id).catch(function () {}); })
+        .then(function () { toast("ok", "Routine stopped — no more runs"); })
+        .then(refresh)
+        .catch(function (err) { if (btn) btn.disabled = false; toast("bad", err.message); });
+    });
+  }
+
+  /* ---------- init + polling ---------- */
+  renderFilters();
+  loadProjects();
+  loadMeta();      // categories, status lanes, retry set, test gates, MAX_FIX
+  loadModels();    // the new-task model picker
+  refresh().catch(function (err) { toast("bad", err.message); });
+
+  /* The runner works server-side, so the board has to learn about status changes
+     on its own. It used to re-fetch every task — logs and all — every 2.5 seconds
+     for as long as the page was open. Now the server announces each write to the
+     task store (see onOpsChange in server/operations.js) and pushes the board down
+     an SSE stream, so nothing is sent while nothing is happening.
+
+     The poll survives as a FALLBACK, at 20s instead of 2.5s, and only runs while
+     the stream is not connected: a board that had silently stopped updating would
+     be worse than one that updates slowly. EventSource reconnects on its own, so
+     `live` simply follows its open/error events. */
+  var opsStream = null, live = false;
+  function connectStream() {
+    if (opsStream || !window.EventSource) return;
+    try {
+      opsStream = new EventSource("/api/ops/stream");
+      opsStream.onopen = function () { live = true; };
+      opsStream.onerror = function () { live = false; };
+      opsStream.onmessage = function (e) {
+        if (!e.data) return;
+        var msg; try { msg = JSON.parse(e.data); } catch (err) { return; }
+        if (msg && msg.type === "tasks") { live = true; tasks = msg.tasks || []; renderAll(); }
+      };
+    } catch (err) { live = false; }
+  }
+  connectStream();
+  setInterval(function () { if (!live) refresh().catch(function () {}); }, 20000);
+  // A phone suspends the page the moment the screen locks, which can leave the
+  // stream half-open. Coming back into view is the cue to catch up at once.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible") return;
+    refresh().catch(function () {});
+  });
+  // meta.projects carries each project's test gate, and a project gains or loses
+  // one when its test setup changes. Re-read it occasionally — but nowhere near
+  // as often as the board, since it also rescans the workspace root.
+  setInterval(function () { loadMeta(); }, 120000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="PlumiChat">
+  <rect width="32" height="32" rx="7.0" fill="#E0915E"/>
+  <rect x="5.0" y="7.0" width="24.0" height="15.0" rx="2.5" fill="#B06C40"/><polygon points="9.5,20 9.5,25.5 17,20" fill="#B06C40"/>
+  <rect x="4.0" y="6.0" width="24.0" height="15.0" rx="2.5" fill="#100E0C"/><polygon points="8.5,19 8.5,24.5 16,19" fill="#100E0C"/>
+  <polyline points="10.0,9.5 15.0,13.5 10.0,17.5" fill="none"
+    stroke="#E8E2D3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="18.0" y="9.5" width="4.0" height="8.0" fill="#E8A06F"/>
+</svg>

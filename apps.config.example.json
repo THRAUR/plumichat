@@ -1,0 +1,43 @@
+{
+  "_README": [
+    "Sister apps that share PlumiChat's accounts (single sign-on). OPTIONAL and empty by default.",
+    "",
+    "Copy this file to apps.config.json (or data/apps.config.json, or point PLUMI_APPS_CONFIG at it).",
+    "Every key that does NOT start with '_' is an app id.",
+    "",
+    "How it works: every app here answers on the SAME hostname as PlumiChat and differs only by port.",
+    "Cookies are not port-scoped, so PlumiChat's session cookie already reaches each app; an app asks",
+    "GET /api/sso/me who the caller is instead of running its own login. Apps never receive SESSION_SECRET,",
+    "so a bug in a small app cannot mint a PlumiChat session.",
+    "",
+    "SECURITY TRADE-OFF, read before adding one: because the cookie is sent to each app's origin, every",
+    "app listed here RECEIVES the raw session cookie and could REPLAY it against PlumiChat and act as that",
+    "user. Only list apps you trust as much as PlumiChat itself. See docs/SECURITY.md.",
+    "",
+    "'theme' is optional — it skins the login screen so signing in does not feel like being thrown out of",
+    "the app you were using. Omit it and the login page keeps PlumiChat's own palette."
+  ],
+
+  "notes": {
+    "name": "Notes",
+    "tagline": "everything you meant to write down",
+    "port": 8450,
+    "brand": { "letterSpacing": "-0.01em", "weight": 700, "size": "19px", "dot": true },
+    "theme": {
+      "dark": {
+        "bg": "#0c0c0d", "surface": "#1a1a1c", "surface-2": "#232326", "surface-3": "#303034",
+        "line": "rgba(255,255,255,0.10)", "line-strong": "rgba(255,255,255,0.22)",
+        "text": "#fafafc", "muted": "#94949c", "faint": "#686870",
+        "accent": "#7aa2f7", "accent-dim": "rgba(122,162,247,0.16)", "accent-line": "rgba(122,162,247,0.42)",
+        "green": "#74cda8", "error": "#ff6b6e", "glow": "#0f1117", "on-accent": "#0d1220"
+      },
+      "light": {
+        "bg": "#f5f3f1", "surface": "#ffffff", "surface-2": "#f7f5f3", "surface-3": "#ebe7e4",
+        "line": "rgba(24,22,22,0.10)", "line-strong": "rgba(24,22,22,0.18)",
+        "text": "#181616", "muted": "#78726e", "faint": "#9e9894",
+        "accent": "#3b5fb8", "accent-dim": "rgba(59,95,184,0.12)", "accent-line": "rgba(59,95,184,0.40)",
+        "green": "#309e76", "error": "#d83a3f", "glow": "#f4f6fd", "on-accent": "#ffffff"
+      }
+    }
+  }
+}

@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- Status bar / address bar colour follows the theme. This media-qualified pair
+     is the no-JS default and tracks the OS; theme.js inserts an override <meta>
+     AHEAD of it when the user has picked light/dark by hand, because the spec
+     takes the FIRST theme-color whose media matches. Values mirror --bg. -->
+<meta name="theme-color" content="#F8F6F1" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)" />
+<title>PlumiChat</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg?v=20260904c" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=20260904c" />
+<link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=20260904c" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260904c" />
+<!-- iOS/macOS snapshot the home-screen NAME from here (the manifest's short_name
+     is only read from 15.4 on), so it has to be stated as well as in the manifest. -->
+<meta name="apple-mobile-web-app-title" content="PlumiChat" />
+<link rel="manifest" href="/manifest.webmanifest?v=20260904c" />
+<script src="/theme.js?v=20260904b"></script>
+<link rel="stylesheet" href="/plume.css?v=20260904b" />
+<link rel="stylesheet" href="/vendor/xterm/xterm.css?v=20260706" />
+<link rel="stylesheet" href="/style.css?v=20260904b" />
+</head>
+<body>
+  <div class="app">
+    <div class="main-col">
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="left-group">
+        <button class="menu-btn" id="menuBtn" type="button" aria-label="Open conversations" aria-expanded="false">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><line x1="9" y1="4" x2="9" y2="20"></line><polyline points="13.5 9.5 16 12 13.5 14.5"></polyline></svg>
+        </button>
+        <div class="brand"><span class="dot"></span>PlumiChat</div>
+      </div>
+      <div class="topbar-title" id="topbarTitle"></div>
+      <div class="files-picker" id="filesPicker" hidden>
+        <button class="files-btn" id="filesBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Files made in this chat" title="Files made in this chat">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+          <span class="files-count" id="filesCount">0</span>
+        </button>
+        <div class="files-menu" id="filesMenu" role="menu"></div>
+      </div>
+      <div class="picker" id="picker">
+        <button class="picker-btn" id="pickerBtn" aria-haspopup="listbox" aria-expanded="false">
+          <span class="label" id="pickerLabel">Loading…</span>
+          <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div class="picker-menu" id="pickerMenu" role="listbox"></div>
+      </div>
+    </header>
+
+    <!-- Messages -->
+    <main class="messages" id="messages">
+      <div class="day-sep">Today</div>
+    </main>
+
+    <!-- Jump to the latest message (shows when scrolled up) -->
+    <div class="jump-anchor">
+      <button class="jump-bottom" id="jumpBottom" type="button" aria-label="Jump to latest message" title="Jump to latest" hidden>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+      </button>
+    </div>
+
+    <!-- Live activity status -->
+    <div class="status-bar" id="statusBar" aria-live="polite" hidden>
+      <span class="sb-ind"><span></span><span></span><span></span></span>
+      <span class="sb-label" id="statusLabel">Working…</span>
+      <button class="sb-live" id="stayLiveBtn" type="button" aria-pressed="true" title="Following new output — tap to stay where you are">
+        <span class="sl-dot"></span><span class="sl-text">Live</span>
+      </button>
+    </div>
+
+    <!-- Background agents tray. The engine keeps a turn alive across background
+         work and resumes itself; this is where that becomes VISIBLE — one row per
+         task plus the "waiting on N agents" state. Filled from window.PLUMI_TASKS. -->
+    <div class="task-tray" id="taskTray" hidden aria-live="polite"></div>
+
+    <!-- Usage + account chip: the 5-hour rate-limit window, the live thinking-token
+         estimate, and the model actually serving the turn. Tap for the full sheet. -->
+    <button class="usage-chip" id="usageChip" type="button" hidden aria-label="Usage and account"></button>
+
+    <!-- Composer -->
+    <form class="composer" id="composer">
+      <div class="composer-inner">
+        <div class="slash-menu" id="slashMenu" role="listbox" aria-label="Skills" hidden></div>
+        <div class="attachments" id="attachments"></div>
+        <div class="composer-quote" id="composerQuote" hidden></div>
+        <!-- Type-ahead while a turn runs: the composer stays live and the message
+             is parked here until the turn ends, instead of being locked out. -->
+        <div class="queued-list" id="queuedList"></div>
+        <!-- "/hello" is not a command — the CLI answers "Unknown command" and burns
+             a turn. Say so before the tap, not after. -->
+        <div class="cmd-warn" id="cmdWarn" hidden></div>
+        <!-- enterkeyhint/inputmode are for the on-screen keyboard. "send" is the
+             DESKTOP truth; the shell script at the bottom of this file rewrites it
+             to "enter" on a coarse pointer, where Enter has to insert a newline
+             (a phone keyboard has no Shift+Enter) — see data-enter-mode. -->
+        <textarea id="input" rows="1" placeholder="Message PlumiChat…" autocomplete="off" autocapitalize="sentences" enterkeyhint="send" inputmode="text"></textarea>
+        <div class="composer-bar">
+          <div class="composer-tools">
+            <button class="tool-btn" id="fileBtn" type="button" aria-label="Add files" title="Add files">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+            </button>
+            <button class="tool-btn" id="imgBtn" type="button" aria-label="Add pictures" title="Add pictures">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5"></rect><circle cx="8.5" cy="8.5" r="1.6"></circle><path d="M21 15l-5-5L5 21"></path></svg>
+            </button>
+            <button class="tool-btn" id="voiceBtn" type="button" aria-label="Voice note" title="Voice note">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0"></path><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            </button>
+            <button class="tool-btn" id="driveBtn" type="button" aria-label="Pick files from the server" title="Pick files from the server">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="14" width="20" height="8" rx="2"></rect><rect x="2" y="2" width="20" height="8" rx="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+            </button>
+            <!-- The command palette, reachable by TAP as well as by typing "/" —
+                 a phone has no Ctrl-K. -->
+            <button class="tool-btn" id="cmdBtn" type="button" aria-label="Commands" title="Commands — everything you can run with /">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><line x1="14" y1="8" x2="10" y2="16"></line></svg>
+            </button>
+            <div class="skills-picker" id="skillsPicker">
+              <button class="tool-btn" id="skillsBtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="What PlumiChat can make" title="What PlumiChat can make">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"></path><path d="M19 14l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"></path></svg>
+              </button>
+              <div class="skills-menu" id="skillsMenu" role="menu"></div>
+            </div>
+          </div>
+          <!-- Row break on phones. Everything ABOVE it puts something into the
+               message (files, pictures, voice, server files, commands, skills);
+               everything BELOW it decides how the turn runs (approval, context,
+               model) and sends it. The approval pill used to sit above the break,
+               beside the paperclip, which read as one more way to attach something. -->
+          <div class="composer-break" aria-hidden="true"></div>
+          <div class="perm-picker" id="permPicker" hidden>
+            <button class="perm-btn" id="permBtn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Approval mode" title="Approval mode">
+              <svg class="perm-ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.4-3 8.2-7 9.4C8 21.2 5 17.4 5 13V6z"></path></svg>
+              <span class="perm-label" id="permLabel">Ask</span>
+            </button>
+            <div class="perm-menu" id="permMenu" role="listbox"></div>
+          </div>
+          <!-- Context ring (audit F4). Hidden until the conversation has a session
+               to measure. Tap for the breakdown, Compact, Fork and Rewind. -->
+          <button class="ctx-btn" id="ctxBtn" type="button" hidden aria-label="Context usage" title="Context"></button>
+          <div class="model-picker" id="modelPicker">
+            <button class="model-btn" id="modelBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="mdot"></span>
+              <span id="modelLabel">Sonnet 4.6</span>
+              <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="model-menu" id="modelMenu" role="listbox"></div>
+          </div>
+          <button class="send-btn" id="sendBtn" type="submit" aria-label="Send" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+          </button>
+        </div>
+      </div>
+      <input type="file" id="fileInput" multiple hidden />
+      <input type="file" id="imgInput" accept="image/*" multiple hidden />
+    </form>
+    </div><!-- /main-col -->
+
+    <!-- Toasts -->
+    <div class="toast-wrap" id="toastWrap"></div>
+
+    <!-- Command palette: every command the box can run, searchable, grouped.
+         Opened by typing "/" in an empty composer or by tapping the / button. -->
+    <div class="cmd-overlay" id="cmdOverlay" hidden></div>
+    <div class="cmd-palette" id="cmdPalette" hidden role="dialog" aria-modal="true" aria-label="Commands">
+      <input class="cmd-palette-input" id="cmdInput" type="text" placeholder="Search commands…"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+             role="combobox" aria-expanded="true" aria-controls="cmdList" aria-autocomplete="list" />
+      <div class="cmd-palette-list" id="cmdList" role="listbox" aria-label="Commands"></div>
+    </div>
+
+    <!-- One reusable sheet for the small detail panels (usage & account, deploy).
+         Two near-identical modals would be two places to fix every phone bug. -->
+    <div class="sheet-overlay" id="sheetOverlay"></div>
+    <aside class="sheet" id="sheet" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="sheetTitle">
+      <div class="sheet-head">
+        <span class="sheet-title" id="sheetTitle"></span>
+        <button class="sheet-x" id="sheetClose" type="button" aria-label="Close" title="Close">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="sheet-body" id="sheetBody"></div>
+    </aside>
+
+    <!-- Conversation library drawer -->
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <aside class="drawer" id="drawer" aria-hidden="true">
+      <div class="drawer-head">
+        <div class="brand"><span class="dot"></span>PlumiChat</div>
+        <div class="drawer-head-actions">
+          <!-- Which shortcuts keep a permanent row. It configures the sidebar, so it
+               lives with the sidebar's own chrome instead of costing a header row. -->
+          <button class="icon-btn" id="shortcutShowBtn" type="button" aria-expanded="false" aria-controls="shortcutPicker" aria-label="Choose which shortcuts stay on the sidebar" title="Choose shortcuts">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="8" x2="20" y2="8"></line><line x1="4" y1="16" x2="20" y2="16"></line><circle cx="9" cy="8" r="2.4"></circle><circle cx="15" cy="16" r="2.4"></circle></svg>
+          </button>
+          <button class="icon-btn" id="drawerRefresh" type="button" aria-label="Refresh conversations" title="Refresh conversations">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          </button>
+          <button class="icon-btn" id="newChatBtn" type="button" aria-label="New chat" title="New chat">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path></svg>
+          </button>
+          <button class="icon-btn" id="drawerClose" type="button" aria-label="Close" title="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+        </div>
+      </div>
+      <div class="drawer-search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="drawerSearchInput" placeholder="Search conversations" autocomplete="off" />
+      </div>
+      <!-- One scroll for the whole sidebar: shortcuts and conversations move
+           together, so a long rack can be scrolled past to reach the chats. -->
+      <div class="drawer-scroll" id="drawerScroll">
+      <div class="shortcut-picker" id="shortcutPicker" hidden></div>
+      <!-- The sidebar is a rack, grouped by WHAT A ROW ACTS ON: your work,
+           the machine underneath it, and the owner-only controls that change
+           the machine. It used to be one flat pile of ten shrink-to-fit
+           buttons — every row a different width, and "Notepad" sitting next to
+           "Restart server" as though they were the same kind of decision.
+           A group with nothing visible in it removes itself (see .nav-group
+           in style.css), so a member sees one group and the owner sees three. -->
+      <section class="nav-group">
+        <h2 class="nav-group-title pl-eyebrow">Workspace</h2>
+        <div class="nav-rack">
+          <button class="drawer-nav" id="notepadNav" type="button">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect><line x1="8" y1="11" x2="16" y2="11"></line><line x1="8" y1="15" x2="13" y2="15"></line></svg></span>
+            <span class="nav-label">Notepad</span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <button class="drawer-nav" id="gridNav" type="button">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg></span>
+            <span class="nav-label">Split view</span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <button class="drawer-nav" id="opsNav" type="button">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>
+            <span class="nav-label">Operations</span>
+            <!-- Owner-only badge: how many finished tasks are waiting on a human, and
+                 whether the runner is busy. /api/ops/status had no caller at all. -->
+            <span class="nav-tag" id="opsTag" hidden></span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+        </div>
+      </section>
+      <section class="nav-group">
+        <h2 class="nav-group-title pl-eyebrow">This machine</h2>
+        <div class="nav-rack">
+          <button class="drawer-nav" id="terminalNav" type="button" hidden aria-label="Open the terminal">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><polyline points="7 9 10 12 7 15"></polyline><line x1="12.5" y1="15" x2="16" y2="15"></line></svg></span>
+            <span class="nav-label">Terminal</span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <button class="drawer-nav" id="sitesNav" type="button" hidden aria-expanded="false" aria-controls="sitesList" aria-label="Websites hosted on this box">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><line x1="3" y1="12" x2="21" y2="12"></line><path d="M12 3a14.5 14.5 0 0 1 0 18a14.5 14.5 0 0 1 0-18z"></path></svg></span>
+            <span class="nav-label">Sites</span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <div class="sites-list" id="sitesList" hidden></div>
+          <button class="drawer-nav" id="notifyNav" type="button" hidden aria-label="Notifications on this device">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"></path><path d="M13.7 21a2 2 0 0 1-3.4 0"></path></svg></span>
+            <span class="nav-label">Notifications</span>
+            <span class="nav-tag" id="notifyTag">Off</span>
+          </button>
+        </div>
+      </section>
+      <section class="nav-group">
+        <h2 class="nav-group-title pl-eyebrow">Owner tools</h2>
+        <div class="nav-rack">
+          <button class="drawer-nav" id="engineNav" type="button" hidden aria-label="Claude engine versions and updates">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg></span>
+            <span class="nav-label">Engine</span>
+            <span class="nav-tag" id="engineTag" hidden></span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <button class="drawer-nav" id="pluginsNav" type="button" hidden aria-label="Plugins and MCP servers">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M9 8V5.5a1.5 1.5 0 0 1 3 0V8"></path><path d="M15 8V5.5a1.5 1.5 0 0 1 3 0V8"></path><line x1="9" y1="14" x2="15" y2="14"></line></svg></span>
+            <span class="nav-label">Plugins &amp; MCP</span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <button class="drawer-nav" id="deployNav" type="button" hidden aria-label="Deploy the pushed code to the live server">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11"></path><polyline points="7.5 9.5 12 14 16.5 9.5"></polyline><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg></span>
+            <span class="nav-label">Deploy</span>
+            <span class="nav-tag" id="deployTag" hidden></span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <button class="drawer-nav" id="restartServerNav" type="button" hidden aria-label="Restart the PlumiChat server">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></span>
+            <span class="nav-label">Restart server</span>
+          </button>
+        </div>
+      </section>
+
+      
+      
+      
+      
+      <!-- Sites: the websites this box is hosting right now, discovered live and
+           unfolded inline so a project is one tap away. Owner-only. -->
+      
+      
+      <!-- Notifications: the client half of Web Push. Without a subscription the
+           server has nowhere to send "your turn is done" while iOS has the app
+           suspended — which was the whole point of the feature. Hidden unless
+           /api/push/key says push is actually configured on this box. -->
+      
+      <!-- Engine (owner): what the two Claude engines are on, and whether one is
+           behind. Deep-links to the real panel in Settings rather than duplicating it. -->
+      
+      <!-- Plugins & MCP (owner): what the engine loads beyond itself. Owner-only
+           because an install runs a marketplace-declared command on this box. -->
+      
+      <!-- Deploy (owner): the middle step of the two-copy ship flow — pull the live
+           clone. It never restarts; the restart stays a separate, deliberate tap. -->
+      
+      
+      <div class="drawer-body" id="drawerBody"></div>
+      </div><!-- /drawer-scroll -->
+      <div class="drawer-foot">
+        <!-- Usage, always on screen. The topbar chip only appears when there is
+             something to say and is easy to miss on a phone; this one is pinned. -->
+        <button class="drawer-usage" id="drawerUsage" type="button" aria-label="Usage and account">
+          <span class="du-top"><span class="du-label">Usage</span><span class="du-pct">—</span></span>
+          <span class="du-track"><span class="du-fill"></span></span>
+          <span class="du-sub">no data yet</span>
+        </button>
+        <button class="user-chip" id="userChip" type="button" aria-label="Open settings">
+          <span class="avatar">A</span>
+          <span class="user-meta">
+            <span class="user-name">You</span>
+            <span class="user-role">Admin · Workspace owner</span>
+          </span>
+          <svg class="user-cog" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle light / dark"></button>
+      </div>
+    </aside>
+
+    <!-- Desktop: drag to resize the conversation sidebar (double-click resets) -->
+    <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical" aria-label="Resize the conversation sidebar" title="Drag to resize · double-click to reset"></div>
+
+    <!-- Server file browser -->
+    <div class="fp-overlay" id="fpOverlay"></div>
+    <aside class="fp-modal" id="fpModal" role="dialog" aria-modal="true" aria-label="Files on the server" aria-hidden="true">
+      <div class="fp-titlebar">
+        <div class="fp-title-group">
+          <span class="fp-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+            <span>Files</span>
+          </span>
+          <button class="fp-jump" id="fpProjectsBtn" type="button" hidden aria-label="Go to your projects folder" title="Jump to your projects folder">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 4l9 6.5"></path><path d="M5 9.5V20h14V9.5"></path></svg>
+            <span>Projects</span>
+          </button>
+        </div>
+        <button class="fp-x" id="fpClose" type="button" aria-label="Close" title="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="fp-toolbar">
+        <button class="fp-nav" id="fpBack" type="button" aria-label="Back" title="Back" disabled>
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <button class="fp-nav" id="fpUp" type="button" aria-label="Up one folder" title="Up one folder" disabled>
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="14 9 9 4 4 9"></polyline><path d="M20 20h-7a4 4 0 0 1-4-4V4"></path></svg>
+        </button>
+        <div class="fp-crumbs" id="fpCrumbs" aria-label="Location"></div>
+        <div class="fp-view" role="group" aria-label="View">
+          <button class="fp-vt" id="fpViewGrid" type="button" aria-label="Icon view" title="Icon view">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>
+          </button>
+          <button class="fp-vt" id="fpViewList" type="button" aria-label="List view" title="List view">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3.5" y1="6" x2="3.51" y2="6"></line><line x1="3.5" y1="12" x2="3.51" y2="12"></line><line x1="3.5" y1="18" x2="3.51" y2="18"></line></svg>
+          </button>
+        </div>
+        <button class="fp-sort" id="fpSort" type="button" aria-label="Change sort order" title="Sort">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="14" y2="7"></line><line x1="4" y1="12" x2="11" y2="12"></line><line x1="4" y1="17" x2="8" y2="17"></line><polyline points="17 8 20 5 20 5"></polyline><path d="M20 5v14"></path><polyline points="17 16 20 19 23 16"></polyline></svg>
+          <span class="fp-sort-label" id="fpSortLabel">Name</span>
+        </button>
+      </div>
+      <div class="fp-search">
+        <svg class="fp-search-ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input id="fpSearch" type="search" inputmode="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search this folder…" aria-label="Search files by name in this folder" />
+        <button class="fp-search-clear" id="fpSearchClear" type="button" aria-label="Clear search" hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="fp-body">
+        <nav class="fp-side" id="fpSide" aria-label="Places"></nav>
+        <div class="fp-main">
+          <div class="fp-list grid" id="fpList"></div>
+        </div>
+      </div>
+      <!-- Right-click (or long-press on a phone) the empty space of the listing to
+           make a new folder right there. Lives inside the modal because .fp-modal's
+           transform makes it the containing block for its positioned children. -->
+      <div class="fp-ctx" id="fpCtx" role="menu" hidden></div>
+      <div class="fp-foot">
+        <div class="fp-up" id="fpUploadWrap">
+          <button class="fp-up-btn" id="fpUpload" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Upload files or a folder from this device into this folder" title="Upload to this folder">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"></path><polyline points="8 8 12 4 16 8"></polyline><line x1="12" y1="4" x2="12" y2="15"></line></svg>
+            <span>Upload</span>
+          </button>
+          <div class="fp-up-menu" id="fpUploadMenu" role="menu" hidden>
+            <button type="button" role="menuitem" id="fpUploadFiles">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+              <span>Upload files…</span>
+            </button>
+            <button type="button" role="menuitem" id="fpUploadFolder">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+              <span>Upload a folder…</span>
+            </button>
+          </div>
+          <input type="file" id="fpUploadInput" multiple hidden />
+          <input type="file" id="fpUploadDirInput" hidden />
+        </div>
+        <button class="fp-selall" id="fpSelAll" type="button" aria-label="Select all in view"><span class="fp-selall-box"></span><span class="fp-selall-tx">Select all</span></button>
+        <span class="fp-count" id="fpCount"></span>
+        <button class="fp-dl-btn" id="fpDownloadSel" type="button" aria-label="Download selected to this device" title="Download selected to this device" disabled>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><polyline points="7 11 12 16 17 11"></polyline><path d="M5 20h14"></path></svg>
+        </button>
+        <button class="fp-attach-btn" id="fpAttach" type="button" disabled>Attach</button>
+      </div>
+    </aside>
+
+    <!-- Notepad: a per-user scratchpad (text clips + file drops) that syncs live
+         across the signed-in user's devices. Great for shuttling a password, link,
+         or file from phone to computer. -->
+    <div class="np-overlay" id="npOverlay"></div>
+    <aside class="np-modal" id="npModal" role="dialog" aria-modal="true" aria-label="Notepad" aria-hidden="true">
+      <div class="np-titlebar">
+        <span class="np-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect><line x1="8" y1="11" x2="16" y2="11"></line><line x1="8" y1="15" x2="13" y2="15"></line></svg>
+          <span>Notepad</span>
+        </span>
+        <span class="np-sync" id="npSync" data-state="off" title="Live sync status">Offline</span>
+        <button class="np-x" id="npClose" type="button" aria-label="Close" title="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="np-compose">
+        <textarea id="npInput" class="np-input" rows="2" placeholder="Type or paste a note — a password, link, snippet… then Add" aria-label="New note" autocomplete="off" spellcheck="false"></textarea>
+        <div class="np-compose-actions">
+          <button class="np-attach" id="npAttach" type="button" aria-label="Attach a file from this device">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+            <span>Attach file</span>
+          </button>
+          <button class="np-add" id="npAdd" type="button" disabled>Add note</button>
+        </div>
+        <input type="file" id="npFile" multiple hidden />
+      </div>
+      <div class="np-body" id="npList" aria-live="polite"></div>
+      <div class="np-foot">
+        <span class="np-hint">Notes &amp; files sync to every device you're signed in on.</span>
+        <button class="np-clear" id="npClear" type="button" hidden>Clear all</button>
+      </div>
+      <div class="np-drop" id="npDrop" aria-hidden="true">
+        <div class="np-drop-inner">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><polyline points="7 10 12 15 17 10"></polyline><path d="M5 20h14"></path></svg>
+          <span>Drop files to add them</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Owner-only terminal: a real, interactive shell on the box for running the
+         `claude` CLI (most importantly Claude Design's /design-sync) and answering
+         its y/n prompts without leaving PlumiChat. Locked to the owner in the /terminal
+         WebSocket upgrade AND hidden here for everyone else. -->
+    <div class="term-overlay" id="termOverlay"></div>
+    <aside class="term-modal" id="termModal" role="dialog" aria-modal="true" aria-label="Terminal" aria-hidden="true">
+      <div class="term-titlebar">
+        <span class="term-title">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><polyline points="7 9 10 12 7 15"></polyline><line x1="12.5" y1="15" x2="16" y2="15"></line></svg>
+          <span>Terminal</span>
+        </span>
+        <span class="term-conn" id="termConn" data-state="off" title="Connection status">Offline</span>
+        <div class="term-tools">
+          <button class="term-target" id="termTarget" type="button" hidden title="Open the design-system folder, ready for /design-sync">Design sync</button>
+          <button class="term-min" id="termMin" type="button" aria-label="Minimize — keeps your shell running" title="Minimize — keeps your shell running (come back or catch up on another device)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="15" x2="18" y2="15"></line></svg>
+          </button>
+          <button class="term-x" id="termEnd" type="button" aria-label="End session" title="End the session (closes the shell for good)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+      </div>
+      <!-- Shown when opening a FRESH shell: pick which project folder to start in
+           (the shell spawns already cd'd there). Skipped when re-opening a session
+           that's still running. Populated from /api/terminal/targets. -->
+      <div class="term-chooser" id="termChooser" hidden>
+        <div class="term-chooser-head">Open a terminal in…</div>
+        <div class="term-chooser-list" id="termChooserList"></div>
+      </div>
+      <div class="term-surface" id="termSurface" hidden></div>
+      <!-- The keys a phone keyboard does not have. Claude Code's own prompts —
+           "do you trust this folder?", the model picker, plan approval — are all
+           driven by arrows plus Enter, so without these the terminal is unusable
+           on a phone: you cannot get past the first question. Each button writes
+           the raw escape sequence straight down the same socket as typing. -->
+      <div class="term-keys" id="termKeys" hidden role="group" aria-label="Terminal keys">
+        <button type="button" data-k="&#x1b;[A" aria-label="Up">↑</button>
+        <button type="button" data-k="&#x1b;[B" aria-label="Down">↓</button>
+        <button type="button" data-k="&#x1b;[D" aria-label="Left">←</button>
+        <button type="button" data-k="&#x1b;[C" aria-label="Right">→</button>
+        <button type="button" data-k="&#x0d;" aria-label="Enter" class="wide">⏎</button>
+        <button type="button" data-k="&#x09;" aria-label="Tab">⇥</button>
+        <button type="button" data-k="&#x1b;[Z" aria-label="Shift Tab">⇤</button>
+        <button type="button" data-k="&#x1b;" aria-label="Escape" class="wide">esc</button>
+        <button type="button" data-k="&#x03;" aria-label="Control C" class="wide danger">^C</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Viewport + keyboard shell. Inline and page-local on purpose: theme.js is
+       shared by settings/operations/grid/login, and only the chat page has a
+       composer pinned to the bottom edge for a keyboard to bury. -->
+  <script>
+  (function () {
+    "use strict";
+    var root = document.documentElement;
+
+    /* ---- --app-h: a viewport height the on-screen keyboard actually shrinks.
+       iOS reports the same 100dvh whether the keyboard is up or not; rather than
+       resize, it scrolls the document under the keys — which is what pushed the
+       topbar off the top of the screen mid-sentence. visualViewport is the only
+       API that reports the real, keyboard-adjusted box. .app (and the three
+       full-screen phone modals) read it, with dvh as the fallback.
+       Grid panes opt out: an <iframe> is already sized by its parent, and
+       visualViewport inside one describes the TOP page, not the pane. */
+    var vv = window.visualViewport;
+    var embedded = /(^|[?&])embed=1(&|$)/.test(location.search);
+    if (vv && !embedded) {
+      var raf = 0, lastH = -1;
+
+      /* The "Reply to selection" pill is position:fixed, and iOS pins fixed
+         elements to the LAYOUT viewport — the one the keyboard does NOT shrink —
+         so a pill already on screen when the keyboard opens can end up behind the
+         keys. app.js decides where it goes; we only pull it back into view. */
+      function clampReplyFab(h) {
+        var fab = document.querySelector(".reply-fab.show");
+        if (!fab) return;
+        var max = h - fab.offsetHeight - 8;
+        if (parseFloat(fab.style.top) > max) fab.style.top = Math.max(6, max) + "px";
+      }
+      /* Shrinking .app shrinks the message list with it, and the browser keeps
+         scrollTop where it was — which on a phone means tapping the composer
+         leaves you looking at blank space above the conversation until the next
+         thing you type scrolls it back. If the list was parked at the bottom
+         before the keyboard opened, it belongs at the bottom after. 120px is the
+         same "near enough to the bottom" slack render.js uses, so a deliberately
+         scrolled-up reader is left exactly where they were. */
+      function reanchor(msgs, wasAtBottom) {
+        if (!msgs || !wasAtBottom) return;
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+      /* iOS reveals a focused input by scrolling the VISUAL viewport, and it does
+         it BEFORE the resize event that tells us to shrink .app. The sequence on
+         a tap is therefore: the composer sits at the bottom of a full-height app,
+         the keyboard covers the lower half, iOS scrolls down a few hundred px to
+         bring the composer up — and only then do we cut .app to --app-h beneath
+         it. The viewport is left parked over the empty page below the app, which
+         is the "it jumps to the bottom and I can't see anything until I type"
+         report: typing makes iOS re-reveal the caret, which is what snaps it back.
+
+         Once .app is exactly the visual viewport's height there is nothing left
+         to legitimately pan to, so any offset is that stale reveal — undo it.
+         The scale guard is the one real exception: a pinch-zoomed reader IS
+         panning on purpose and must be left alone. */
+      function unscroll() {
+        if (vv.scale > 1.01) return;
+        if (vv.offsetTop > 0.5 || window.scrollY > 0.5) window.scrollTo(0, 0);
+      }
+      function syncViewport() {
+        raf = 0;
+        // Round DOWN: half a pixel too tall re-creates the document scroll this
+        // whole mechanism exists to kill.
+        var h = Math.floor(vv.height);
+        if (h !== lastH) {
+          var msgs = document.getElementById("messages");
+          var wasAtBottom = !!msgs
+            && (msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 120);
+          lastH = h;
+          root.style.setProperty("--app-h", h + "px");
+          // Reading scrollHeight here forces the layout the style write just
+          // invalidated, so the scroll lands against the NEW height rather than
+          // the old one. Once per keyboard open or close; not per frame.
+          reanchor(msgs, wasAtBottom);
+        }
+        clampReplyFab(h);
+        // AFTER the height write: undoing the reveal only sticks once the app is
+        // actually the size that makes the revealed area not exist.
+        unscroll();
+      }
+      // visualViewport fires scroll continuously while a finger pans, so coalesce
+      // to one write per frame.
+      function schedule() { if (!raf) raf = requestAnimationFrame(syncViewport); }
+      vv.addEventListener("resize", schedule);
+      vv.addEventListener("scroll", schedule);
+      window.addEventListener("orientationchange", schedule);
+      /* Focusing the composer is the moment the reveal happens, and iOS runs it
+         over several frames while the keyboard animates — a single correction on
+         the resize event lands too early to stick. Re-assert through the
+         animation instead. Cheap: a handful of no-op reads on one tap. */
+      document.addEventListener("focusin", function (e) {
+        if (!e.target || !e.target.closest || !e.target.closest(".composer")) return;
+        var t = 0, iv = setInterval(function () {
+          unscroll();
+          if ((t += 60) > 600) clearInterval(iv);
+        }, 60);
+      }, true);
+      syncViewport();
+    }
+
+    /* ---- Enter: send, or newline?  A phone keyboard has no Shift+Enter, so on a
+       coarse pointer Enter has to insert a newline and the send button becomes the
+       only way to send. The switch app.js reads is
+           document.documentElement.dataset.enterMode  ->  "send" | "newline"
+       (mirrored as the attribute html[data-enter-mode] for CSS), and it re-fires
+       as the "plumi-enter-mode" window event whenever the pointer type changes —
+       which really happens: docking an iPad to a keyboard flips it live.
+       enterkeyhint is kept honest with it, because a key labelled "send" that
+       inserts a newline is worse than no hint at all. */
+    var input = document.getElementById("input");
+    function applyEnterMode() {
+      var coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+      var mode = coarse ? "newline" : "send";
+      if (root.dataset.enterMode === mode) return;
+      root.dataset.enterMode = mode;
+      if (input) input.setAttribute("enterkeyhint", coarse ? "enter" : "send");
+      try { window.dispatchEvent(new CustomEvent("plumi-enter-mode", { detail: mode })); } catch (e) {}
+    }
+    try {
+      var mqc = window.matchMedia("(pointer: coarse)");
+      if (mqc.addEventListener) mqc.addEventListener("change", applyEnterMode);
+      else if (mqc.addListener) mqc.addListener(applyEnterMode);
+    } catch (e) {}
+    applyEnterMode();
+  })();
+  </script>
+
+  <script src="/vendor/marked.min.js?v=20260703"></script>
+  <script src="/vendor/purify.min.js?v=20260703"></script>
+  <script src="/vendor/xterm/xterm.js?v=20260706"></script>
+  <script src="/vendor/xterm/xterm-addon-fit.js?v=20260706"></script>
+  <!-- The chat client. app.js is an ES MODULE (type="module") and imports the rest
+       of the app from /js/ — no build step, the server sends the files as they are.
+       Two consequences worth knowing: a module is deferred, so this still runs after
+       the four classic scripts above have defined marked / DOMPurify / Terminal /
+       FitAddon; and the ?v= cache-buster only applies to this file — the imports ride
+       on the Cache-Control: no-cache the server sets for everything in public/. -->
+  <!-- Preload the module graph. app.js imports 3 levels deep, so without these the
+       browser discovers 38 files one round-trip at a time — painful on a
+       high-latency link. Listed here they are all fetched in parallel instead.
+       Generated from public/js/; if you add a module, add its line. -->
+  <link rel="modulepreload" href="/js/api.js?v=20260903">
+  <link rel="modulepreload" href="/js/boot.js?v=20260903">
+  <link rel="modulepreload" href="/js/cards.js?v=20260903">
+  <link rel="modulepreload" href="/js/composer.js?v=20260903">
+    <link rel="modulepreload" href="/js/panels/context.js?v=20260903">
+    <link rel="modulepreload" href="/js/panels/plugins.js?v=20260903">
+  <link rel="modulepreload" href="/js/dismiss.js?v=20260903">
+  <link rel="modulepreload" href="/js/dom.js?v=20260903">
+  <link rel="modulepreload" href="/js/exports.js?v=20260903">
+  <link rel="modulepreload" href="/js/files.js?v=20260903">
+  <link rel="modulepreload" href="/js/handoff.js?v=20260903">
+  <link rel="modulepreload" href="/js/history.js?v=20260903">
+  <link rel="modulepreload" href="/js/icons.js?v=20260903">
+  <link rel="modulepreload" href="/js/library.js?v=20260903">
+  <link rel="modulepreload" href="/js/models.js?v=20260903">
+  <link rel="modulepreload" href="/js/profile.js?v=20260903">
+  <link rel="modulepreload" href="/js/projects.js?v=20260903">
+  <link rel="modulepreload" href="/js/quote.js?v=20260903">
+  <link rel="modulepreload" href="/js/render.js?v=20260903">
+  <link rel="modulepreload" href="/js/sheet.js?v=20260903">
+  <link rel="modulepreload" href="/js/state.js?v=20260903">
+  <link rel="modulepreload" href="/js/stream.js?v=20260903">
+  <link rel="modulepreload" href="/js/tasks.js?v=20260903">
+  <link rel="modulepreload" href="/js/tray.js?v=20260903">
+  <link rel="modulepreload" href="/js/usage.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/attachments.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/commands.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/deliverables.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/engine.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/notepad.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/notify.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/perm.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/push.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/restart.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/shortcuts.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/sites.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/skills.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/terminal.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/theme-toggle.js?v=20260903">
+  <link rel="modulepreload" href="/js/panels/voice.js?v=20260903">
+  <script type="module" src="/app.js?v=20260904b"></script>
+</body>
+</html>

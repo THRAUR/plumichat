@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#141210" />
+<title>PlumiChat · Unlock</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg?v=20260904c" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=20260904c" />
+<link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=20260904c" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260904c" />
+<!-- iOS/macOS snapshot the home-screen NAME from here (the manifest's short_name
+     is only read from 15.4 on), so it has to be stated as well as in the manifest. -->
+<meta name="apple-mobile-web-app-title" content="PlumiChat" />
+<link rel="manifest" href="/manifest.webmanifest?v=20260904c" />
+<script src="/theme.js?v=20260904b"></script>
+<link rel="stylesheet" href="/plume.css?v=20260904b" />
+<style>
+  /* Palette, typefaces and primitives come from plume.css. Only --glow is
+     local: the unlock screen is the one place with an ambient wash, and it is
+     a half-step off --bg rather than a colour of its own. */
+  :root { --glow: #1B1713; }
+  html[data-theme="light"] { --glow: #FFFDF8; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(110% 80% at 50% -10%, var(--glow) 0%, var(--bg) 56%);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+  button { font-family: inherit; cursor: pointer; color: inherit; }
+  ::selection { background: var(--accent-dim); }
+
+  .auth {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 22px calc(28px + env(safe-area-inset-bottom));
+    padding-top: calc(32px + env(safe-area-inset-top));
+  }
+  .auth-inner {
+    width: 100%;
+    max-width: 340px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  .brand {
+    display: flex; align-items: center; gap: 9px;
+    font-weight: 650; letter-spacing: 0.2em; font-size: 14px;
+    color: var(--text);
+  }
+  .brand .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+
+  .prompt { text-align: center; margin-top: 26px; }
+  .prompt h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+  .prompt p { margin: 6px 0 0; font-size: 13.5px; color: var(--muted); }
+
+  .shaker { width: 100%; display: flex; flex-direction: column; align-items: center; }
+  .shaker.shake { animation: shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+  @keyframes shake {
+    10%, 90% { transform: translateX(-2px); }
+    20%, 80% { transform: translateX(4px); }
+    30%, 50%, 70% { transform: translateX(-8px); }
+    40%, 60% { transform: translateX(8px); }
+  }
+
+  /* ---------- PIN dots ---------- */
+  .pin-dots { display: flex; gap: 18px; margin-top: 38px; height: 14px; align-items: center; }
+  .pin-dots .d {
+    width: 13px; height: 13px; border-radius: 50%;
+    border: 1.5px solid var(--faint);
+    background: transparent;
+    transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  }
+  .pin-dots .d.on {
+    background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+    transform: scale(1.06);
+  }
+  .pin-dots.ok .d { background: var(--green); border-color: var(--green); box-shadow: 0 0 0 2px var(--green-dim); }
+  .pin-dots.err .d.on { background: var(--error); border-color: var(--error); box-shadow: 0 0 0 2px var(--error-dim); }
+
+  .msg { min-height: 18px; margin-top: 16px; font-size: 13px; color: var(--muted); text-align: center; transition: color 0.15s ease; }
+  .msg.bad { color: var(--error); }
+  .msg.good { color: var(--green); }
+
+  /* ---------- Keypad (phone) ---------- */
+  .keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px 22px;
+    margin-top: 26px;
+    width: 100%;
+    max-width: 300px;
+  }
+  .key {
+    position: relative;
+    aspect-ratio: 1;
+    max-width: 78px;
+    width: 100%;
+    margin: 0 auto;
+    border-radius: 50%;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+    user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  .key .num { font-size: 27px; font-weight: 400; line-height: 1; }
+  .key .ltr { font-size: 9px; font-weight: 600; letter-spacing: 0.12em; color: var(--muted); margin-top: 4px; height: 9px; }
+  .key:hover { background: var(--surface-2); }
+  .key:active, .key.press { background: var(--accent-dim); border-color: var(--accent-line); transform: scale(0.94); }
+  .key.fn { border-color: transparent; background: transparent; color: var(--muted); }
+  .key.fn:hover { background: var(--surface); color: var(--text); }
+  .key.fn:active { background: var(--surface-2); transform: scale(0.94); }
+  .key.hidden { visibility: hidden; pointer-events: none; }
+
+  /* ---------- Desktop bar ---------- */
+  .bar-form { display: none; width: 100%; flex-direction: column; gap: 14px; margin-top: 34px; }
+  .bar {
+    display: flex; align-items: center; gap: 12px;
+    height: 60px; padding: 0 18px;
+    border-radius: var(--r-win);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  }
+  .bar:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-dim); }
+  .bar .lock { color: var(--muted); flex: none; }
+  .bar input {
+    flex: 1; min-width: 0;
+    border: 0; outline: 0; background: transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 24px;
+    letter-spacing: 0.45em;
+    text-align: center;
+    caret-color: var(--accent-text);
+  }
+  .bar input::placeholder { color: var(--faint); letter-spacing: 0.45em; }
+  .unlock {
+    height: 52px; border: 0; border-radius: var(--r-md);
+    background: var(--accent); color: var(--on-accent);
+    font-size: 15px; font-weight: 600;
+    transition: background 0.14s ease, transform 0.1s ease, opacity 0.16s ease;
+  }
+  .unlock:hover { filter: brightness(1.08); }
+  .unlock:active { transform: translateY(1px); }
+  .unlock:disabled { background: var(--surface-3); color: var(--faint); cursor: default; }
+
+  /* ---------- Footer ---------- */
+  .footer { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-top: 28px; }
+  .biometric {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 9px 15px; border-radius: var(--r-md);
+    border: 1px solid var(--line); background: transparent;
+    color: var(--muted); font-size: 13px; font-weight: 500;
+    transition: color 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+  }
+  .biometric:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface); }
+  .biometric svg { color: var(--accent-text); }
+  .biometric[hidden] { display: none; }
+  .forgot {
+    border: 0; background: transparent; color: var(--muted);
+    font-size: 13px; padding: 4px;
+    transition: color 0.14s ease;
+  }
+  .forgot:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+  .hint {
+    margin-top: 4px; font-size: 11px; color: var(--faint);
+    font-family: var(--mono); letter-spacing: 0.02em; text-align: center;
+  }
+
+  /* ---------- Details step (name / email text inputs) ---------- */
+  .details { width: 100%; display: none; flex-direction: column; gap: 12px; margin-top: 30px; }
+  .details.show { display: flex; }
+  .shaker.hide { display: none; }
+  .tfield { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+  .tfield label { font-size: 12px; color: var(--muted); font-weight: 500; padding-left: 2px; }
+  .tfield input {
+    height: 54px; padding: 0 16px; border-radius: var(--r-md);
+    background: var(--surface); border: 1px solid var(--line-strong);
+    color: var(--text); font-family: var(--sans); font-size: 16px; outline: none;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  }
+  .tfield input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-dim); }
+  .tfield.hide { display: none; }
+  .details .unlock { margin-top: 6px; }
+  .pk-or { margin-top: 4px; font-size: 12px; color: var(--faint); text-align: center; }
+
+  .linkbtn { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 5px; transition: color 0.14s ease; }
+  .linkbtn:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+  .linkbtn b { color: var(--accent-text); font-weight: 600; }
+  .linkbtn[hidden] { display: none; }
+  .notice {
+    width: 100%; margin-top: 18px; padding: 11px 14px; border-radius: var(--r-md);
+    background: var(--accent-dim); border: 1px solid var(--accent-line);
+    color: var(--text); font-size: 12.5px; line-height: 1.5; text-align: center;
+  }
+  .notice[hidden] { display: none; }
+
+  /* ---------- Enroll prompt (post-unlock biometric offer) ---------- */
+  .enroll {
+    width: 100%; margin-top: 28px;
+    background: var(--surface); border: 1px solid var(--line-strong);
+    border-radius: var(--r-win); padding: 18px 18px 16px;
+    display: none; flex-direction: column; align-items: center; text-align: center;
+  }
+  .enroll.show { display: flex; animation: rise 0.24s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .enroll .e-ic { color: var(--accent-text); margin-bottom: 8px; }
+  .enroll h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  .enroll p { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+  .enroll-actions { display: flex; gap: 9px; width: 100%; }
+  .enroll-actions button {
+    flex: 1; height: 42px; border-radius: var(--r-md); font-size: 13.5px; font-weight: 600;
+    border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text);
+    transition: background 0.14s ease, transform 0.1s ease;
+  }
+  .enroll-actions button:active { transform: translateY(1px); }
+  .enroll-actions .primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+  .enroll-actions .primary:hover { filter: brightness(1.08); }
+  .enroll-actions .ghost { background: transparent; color: var(--muted); }
+  .enroll-actions .ghost:hover { color: var(--text); background: var(--surface-2); }
+
+  /* ---------- Responsive switch ---------- */
+  @media (min-width: 760px) {
+    .auth-inner { max-width: 380px; }
+    .prompt { margin-top: 30px; }
+    .pin-dots { display: none; }
+    .keypad { display: none; }
+    .bar-form { display: flex; }
+    .msg { margin-top: 6px; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     PLUME — the unlock screen.
+     This is the first thing anyone sees of PlumiChat, so it carries the
+     signature hardest: the wordmark ends in a blinking cursor, the keypad
+     is a grid of pixel squares rather than circles, and pressing a key
+     moves it onto its own shadow.
+     ══════════════════════════════════════════════════════════════════════ */
+  .brand { font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: 0.04em; }
+  .brand .dot {
+    width: 8px; height: 15px; border-radius: 0;
+    background: var(--accent); box-shadow: none;
+  }
+  /* Three beats, then solid — see the note beside the same rule in style.css. */
+  @media (prefers-reduced-motion: no-preference) {
+    .brand .dot { animation: pl-caret 1.06s steps(1, end) 3 both; }
+    @keyframes pl-caret {
+      0%, 55%   { opacity: 1; }
+      56%, 99%  { opacity: 0; }
+      100%      { opacity: 1; }
+    }
+  }
+  .prompt h1 { font-family: var(--font-display); font-weight: 700; font-size: 21px; letter-spacing: 0.01em; }
+  .prompt p { font-size: 13px; }
+
+  /* Six squares filling left to right — a memory row, not a string of beads. */
+  .pin-dots { gap: 14px; }
+  .pin-dots .d { border-radius: 1px; width: 12px; height: 12px; }
+  .pin-dots .d.on { transform: none; box-shadow: none; }
+  .pin-dots.ok .d, .pin-dots.err .d.on { box-shadow: none; }
+
+  .msg { font-size: 12.5px; }
+
+  /* A Plume key is a square that depresses ONTO its shadow. */
+  .key {
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-sm);
+    transition: background var(--dur-fast) linear, border-color var(--dur-fast) linear,
+                box-shadow var(--dur-fast) linear, transform var(--dur-fast) linear;
+  }
+  .key .num { font-family: var(--font-display); font-weight: 700; font-size: 26px; }
+  .key .ltr { font-family: var(--font-label); font-size: 8px; letter-spacing: 0.1em; }
+  .key:active, .key.press {
+    background: var(--accent-dim); border-color: var(--accent);
+    transform: translate(2px, 2px); box-shadow: none;
+  }
+  .key.fn { box-shadow: none; }
+  .key.fn:active { transform: translate(2px, 2px); }
+
+  .bar { border-radius: var(--r-md); box-shadow: var(--shadow-sm); }
+  .bar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+
+</style>
+</head>
+<body>
+  <div class="auth">
+    <div class="auth-inner">
+      <div class="brand"><span class="dot"></span>PlumiChat</div>
+
+      <div class="prompt">
+        <h1 id="title">Welcome</h1>
+        <p id="subtitle">Loading…</p>
+      </div>
+
+      <div class="notice" id="notice" hidden></div>
+
+      <!-- Step 1 (login/register): collect identity (name + email) -->
+      <div class="details" id="details">
+        <div class="tfield" id="fldFirst"><label for="inFirst">First name</label><input id="inFirst" type="text" autocomplete="given-name" autocapitalize="words" spellcheck="false" /></div>
+        <div class="tfield" id="fldLast"><label for="inLast">Last name</label><input id="inLast" type="text" autocomplete="family-name" autocapitalize="words" spellcheck="false" /></div>
+        <div class="tfield" id="fldEmail"><label for="inEmail">Email</label><input id="inEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" /></div>
+        <button class="unlock" id="detailsBtn" type="button">Continue</button>
+        <button class="biometric" id="pkLoginBtn" type="button" hidden style="align-self:center;margin-top:2px">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 14 0"></path><path d="M7.5 16.5A6 6 0 0 1 7 13a5 5 0 0 1 10 0c0 1.4-.2 2.6-.6 3.8"></path><path d="M12 13v3.5a3 3 0 0 0 .9 2.1"></path><path d="M9.5 18.8A4 4 0 0 1 9 13a3 3 0 0 1 6 0"></path></svg>
+          <span>Log in with a passkey</span>
+        </button>
+      </div>
+
+      <!-- Step 2: passcode (keypad on phone, bar on desktop) -->
+      <div class="shaker hide" id="shaker">
+        <div class="pin-dots" id="dots"></div>
+
+        <div class="keypad" id="keypad"></div>
+
+        <form class="bar-form" id="barForm">
+          <div class="bar">
+            <span class="lock">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2.4"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+            </span>
+            <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••••" aria-label="Passcode" />
+          </div>
+          <button class="unlock" id="unlockBtn" type="submit" disabled>Unlock</button>
+        </form>
+
+        <div class="msg" id="msg">6-digit passcode</div>
+      </div>
+
+      <!-- Post-unlock biometric enrollment offer -->
+      <div class="enroll" id="enroll">
+        <span class="e-ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 14 0"></path><path d="M7.5 16.5A6 6 0 0 1 7 13a5 5 0 0 1 10 0c0 1.4-.2 2.6-.6 3.8"></path><path d="M12 13v3.5a3 3 0 0 0 .9 2.1"></path><path d="M9.5 18.8A4 4 0 0 1 9 13a3 3 0 0 1 6 0"></path></svg></span>
+        <h2>Enable biometric unlock?</h2>
+        <p>Use Face ID / Touch ID to unlock next time. Your passkey is bound to this workspace.</p>
+        <div class="enroll-actions">
+          <button class="ghost" id="enrollSkip" type="button">Not now</button>
+          <button class="primary" id="enrollGo" type="button">Enable</button>
+        </div>
+      </div>
+
+      <div class="footer">
+        <button class="biometric" id="bioBtn" type="button" hidden>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 14 0"></path><path d="M7.5 16.5A6 6 0 0 1 7 13a5 5 0 0 1 10 0c0 1.4-.2 2.6-.6 3.8"></path><path d="M12 13v3.5a3 3 0 0 0 .9 2.1"></path><path d="M9.5 18.8A4 4 0 0 1 9 13a3 3 0 0 1 6 0"></path></svg>
+          <span id="bioLabel">Unlock with biometrics</span>
+        </button>
+        <button class="linkbtn" id="switchBtn" type="button" hidden></button>
+        <button class="forgot" id="backBtn" type="button" hidden>← Use a different email</button>
+        <button class="forgot" id="basicBtn" type="button">Use password instead</button>
+        <div class="hint" id="hint"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+  var LEN = 6;
+  var pin = "";
+  var busy = false;
+
+  // flow: "login" | "register"     screen: "details" | "pin"
+  var flow = "login";
+  var screen = "details";
+  var ownerSetup = false;        // first-ever account (bootstrap) -> owner
+  var inviteToken = "";          // from ?invite=...  (member registration)
+  var canRegister = false;       // registration possible (bootstrap or valid invite)
+  var setupStep = 1;             // register: 1 = choose PIN, 2 = confirm
+  var firstPin = "";
+  var acct = { firstName: "", lastName: "", email: "" };
+  var status = { bootstrap: false, authed: false, inviteValid: false, webauthnAvailable: false, secure: false, basicAvailable: true };
+
+  var dotsEl = document.getElementById("dots");
+  var keypadEl = document.getElementById("keypad");
+  var msgEl = document.getElementById("msg");
+  var titleEl = document.getElementById("title");
+  var subtitleEl = document.getElementById("subtitle");
+  var hintEl = document.getElementById("hint");
+  var shaker = document.getElementById("shaker");
+  var pinInput = document.getElementById("pinInput");
+  var unlockBtn = document.getElementById("unlockBtn");
+  var barForm = document.getElementById("barForm");
+  var bioBtn = document.getElementById("bioBtn");
+  var basicBtn = document.getElementById("basicBtn");
+  var enrollEl = document.getElementById("enroll");
+  var bioKey = null;
+
+  var detailsEl = document.getElementById("details");
+  var inFirst = document.getElementById("inFirst");
+  var inLast = document.getElementById("inLast");
+  var inEmail = document.getElementById("inEmail");
+  var detailsBtn = document.getElementById("detailsBtn");
+  var fldFirst = document.getElementById("fldFirst");
+  var fldLast = document.getElementById("fldLast");
+  var pkLoginBtn = document.getElementById("pkLoginBtn");
+  var noticeEl = document.getElementById("notice");
+  var switchBtn = document.getElementById("switchBtn");
+  var backBtn = document.getElementById("backBtn");
+
+  /* ---------- helpers ---------- */
+  // Set by the server when you arrived from a sister app (see apps.config.json): the skin is
+  // already painted, this carries the name and where to hand you back. The return
+  // URL comes from the server's own registry, never from the query string — so this
+  // page can't be talked into bouncing someone to an address of their choosing.
+  var ssoApp = window.__SSO_APP || null;
+
+  function nextTarget() {
+    if (ssoApp) return ssoApp.returnUrl;
+    var p = new URLSearchParams(location.search).get("next") || "/";
+    return (p.indexOf("/") === 0 && p.indexOf("//") !== 0) ? p : "/";
+  }
+  function goIn() { location.href = nextTarget(); }
+  // The one account, wherever you started from.
+  var HOME_NAME = ssoApp ? ssoApp.name : "PlumiChat";
+  function postJSON(url, body) {
+    return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) throw new Error(d.error || ("Request failed (" + r.status + ")"));
+        return d;
+      }); });
+  }
+  function b64urlToBuf(s) {
+    s = String(s).replace(/-/g, "+").replace(/_/g, "/");
+    var pad = s.length % 4 ? 4 - (s.length % 4) : 0;
+    s += "=".repeat(pad);
+    var bin = atob(s), a = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+    return a.buffer;
+  }
+  function bufToB64url(buf) {
+    var b = new Uint8Array(buf), s = "";
+    for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function setMsg(kind, text) { msgEl.className = "msg" + (kind ? " " + kind : ""); msgEl.textContent = text; }
+  function canBio() { return !!(window.PublicKeyCredential && navigator.credentials); }
+  function emailOk(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim()); }
+  function showEl(el, show) { if (el) el.hidden = !show; }
+
+  /* ---------- dots ---------- */
+  for (var i = 0; i < LEN; i++) { var dd = document.createElement("span"); dd.className = "d"; dotsEl.appendChild(dd); }
+  var dotEls = dotsEl.querySelectorAll(".d");
+  function renderDots() { for (var i = 0; i < LEN; i++) dotEls[i].classList.toggle("on", i < pin.length); }
+
+  /* ---------- keypad ---------- */
+  var keys = [
+    { d: "1", l: "" }, { d: "2", l: "ABC" }, { d: "3", l: "DEF" },
+    { d: "4", l: "GHI" }, { d: "5", l: "JKL" }, { d: "6", l: "MNO" },
+    { d: "7", l: "PQRS" }, { d: "8", l: "TUV" }, { d: "9", l: "WXYZ" },
+    { d: "bio" }, { d: "0", l: "+" }, { d: "del" }
+  ];
+  keys.forEach(function (k) {
+    var b = document.createElement("button");
+    b.type = "button";
+    if (k.d === "bio") {
+      b.className = "key fn"; bioKey = b;
+      b.setAttribute("aria-label", "Use a passkey");
+      b.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 14 0"></path><path d="M7.5 16.5A6 6 0 0 1 7 13a5 5 0 0 1 10 0c0 1.4-.2 2.6-.6 3.8"></path><path d="M12 13v3.5a3 3 0 0 0 .9 2.1"></path><path d="M9.5 18.8A4 4 0 0 1 9 13a3 3 0 0 1 6 0"></path></svg>';
+      b.addEventListener("click", onBiometric);
+    } else if (k.d === "del") {
+      b.className = "key fn";
+      b.setAttribute("aria-label", "Delete");
+      b.innerHTML = '<svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H8.5a2 2 0 0 0-1.5.7L2.7 11a1.5 1.5 0 0 0 0 2L7 18.3a2 2 0 0 0 1.5.7H21a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 21 5z"></path><line x1="17" y1="9.5" x2="12" y2="14.5"></line><line x1="12" y1="9.5" x2="17" y2="14.5"></line></svg>';
+      b.addEventListener("click", function () { setPin(pin.slice(0, -1)); });
+    } else {
+      b.className = "key";
+      b.innerHTML = '<span class="num">' + k.d + '</span><span class="ltr">' + (k.l || "") + '</span>';
+      b.addEventListener("click", function () { press(b); setPin(pin + k.d); });
+    }
+    keypadEl.appendChild(b);
+  });
+  function press(el) { el.classList.add("press"); setTimeout(function () { el.classList.remove("press"); }, 110); }
+
+  function setPin(v) {
+    if (busy) return;
+    pin = String(v).replace(/\D/g, "").slice(0, LEN);
+    renderDots();
+    if (pinInput.value !== pin) pinInput.value = pin;
+    unlockBtn.disabled = pin.length !== LEN;
+    if (!msgEl.classList.contains("good")) {
+      msgEl.classList.remove("bad");
+      msgEl.textContent = pin.length ? " " : defaultMsg();
+    }
+    if (pin.length === LEN) submitPin();
+  }
+  function clearPin() { pin = ""; renderDots(); pinInput.value = ""; unlockBtn.disabled = true; }
+
+  /* ---------- screen rendering ---------- */
+  function defaultMsg() {
+    if (flow === "register") return setupStep === 1 ? "Choose 6 digits" : "Re-enter to confirm";
+    return "6-digit passcode";
+  }
+  function showBioPossible() { return status.webauthnAvailable || canBio(); }
+
+  function applyAll() {
+    var registering = flow === "register";
+    detailsEl.classList.toggle("show", screen === "details");
+    shaker.classList.toggle("hide", screen !== "pin");
+    enrollEl.classList.remove("show");
+
+    if (screen === "details") {
+      fldFirst.classList.toggle("hide", !registering);
+      fldLast.classList.toggle("hide", !registering);
+      if (registering) {
+        titleEl.textContent = "Create your account";
+        subtitleEl.textContent = ownerSetup ? "Set up the owner account for this workspace" : "You've been invited to " + HOME_NAME;
+      } else {
+        titleEl.textContent = ssoApp ? "Sign in to " + ssoApp.name : "Log in";
+        subtitleEl.textContent = ssoApp ? "One account for every app" : "Enter your email to continue";
+      }
+      detailsBtn.textContent = "Continue";
+      showEl(pkLoginBtn, !registering && status.webauthnAvailable && status.secure && canBio());
+      if (registering) {
+        switchBtn.innerHTML = "Already have an account? <b>Log in</b>";
+        showEl(switchBtn, true);
+      } else if (canRegister) {
+        switchBtn.innerHTML = "Need an account? <b>Register</b>";
+        showEl(switchBtn, true);
+      } else {
+        showEl(switchBtn, false);
+      }
+      showEl(backBtn, false);
+      showEl(bioBtn, false);
+      if (bioKey) bioKey.classList.add("hidden");
+      hintEl.textContent = registering ? "Your passcode is stored hashed, never in plain text." : "";
+      setMsg("", " ");
+    } else {
+      if (registering) {
+        titleEl.textContent = setupStep === 1 ? "Choose a passcode" : "Confirm your passcode";
+        subtitleEl.textContent = setupStep === 1 ? "6 digits — you'll use this to log in" : "Re-enter the 6 digits";
+        unlockBtn.textContent = setupStep === 1 ? "Continue" : "Create account";
+      } else {
+        titleEl.textContent = "Enter your passcode";
+        subtitleEl.textContent = acct.email || "Unlock your workspace";
+        unlockBtn.textContent = "Log in";
+      }
+      var showBio = !registering && status.webauthnAvailable && status.secure && canBio();
+      showEl(bioBtn, showBio);
+      if (bioKey) bioKey.classList.toggle("hidden", !showBio);
+      showEl(switchBtn, false);
+      showEl(backBtn, true);
+      hintEl.textContent = (!status.secure && showBioPossible()) ? "Passkey unlock needs HTTPS" : "";
+      setMsg("", defaultMsg());
+    }
+    showEl(basicBtn, status.basicAvailable);
+  }
+
+  function goDetails() {
+    screen = "details"; busy = false; clearPin();
+    setupStep = 1; firstPin = "";
+    dotsEl.classList.remove("ok", "err");
+    applyAll();
+    setTimeout(function () { var f = (flow === "register") ? inFirst : inEmail; try { f.focus(); } catch (e) {} }, 60);
+  }
+  function goPin() {
+    screen = "pin"; busy = false; clearPin();
+    setupStep = 1; firstPin = "";
+    dotsEl.classList.remove("ok", "err");
+    applyAll();
+    setTimeout(function () { try { pinInput.focus(); } catch (e) {} }, 60);
+  }
+
+  /* ---------- details step ---------- */
+  function setNotice(text, bad) {
+    if (!text) { noticeEl.hidden = true; return; }
+    noticeEl.hidden = false;
+    noticeEl.textContent = text;
+    noticeEl.style.color = bad ? "var(--error)" : "";
+  }
+  function submitDetails() {
+    if (flow === "register") {
+      var fn = inFirst.value.trim(), ln = inLast.value.trim(), em = inEmail.value.trim();
+      if (!fn) { setNotice("Enter your first name", true); try { inFirst.focus(); } catch (e) {} return; }
+      if (!ln) { setNotice("Enter your last name", true); try { inLast.focus(); } catch (e) {} return; }
+      if (!emailOk(em)) { setNotice("Enter a valid email address", true); try { inEmail.focus(); } catch (e) {} return; }
+      acct = { firstName: fn, lastName: ln, email: em };
+    } else {
+      var e2 = inEmail.value.trim();
+      if (!emailOk(e2)) { setNotice("Enter a valid email address", true); try { inEmail.focus(); } catch (e) {} return; }
+      acct = { firstName: "", lastName: "", email: e2 };
+    }
+    setNotice("", false);
+    goPin();
+  }
+
+  /* ---------- PIN step ---------- */
+  function submitPin() {
+    if (busy) return;
+    if (pin.length < LEN) { fail("Enter 6 digits", false); return; }
+    if (flow === "register") return submitRegister();
+    return submitLogin();
+  }
+  function submitLogin() {
+    busy = true;
+    postJSON("/api/auth/login", { email: acct.email, pin: pin })
+      .then(function () { afterAuth(); })
+      .catch(function (err) { fail(err.message || "Incorrect email or passcode", true); });
+  }
+  function submitRegister() {
+    if (setupStep === 1) {
+      firstPin = pin; setupStep = 2; busy = true;
+      setTimeout(function () { busy = false; clearPin(); applyAll(); }, 160);
+      return;
+    }
+    if (pin !== firstPin) {
+      fail("Passcodes didn't match - start over", true);
+      setupStep = 1; firstPin = "";
+      setTimeout(applyAll, 540);
+      return;
+    }
+    busy = true;
+    postJSON("/api/auth/register", {
+      invite: inviteToken,
+      firstName: acct.firstName, lastName: acct.lastName, email: acct.email, pin: pin
+    })
+      .then(function () { afterAuth(); })
+      .catch(function (err) {
+        fail(err.message || "Couldn't create your account", true);
+        setupStep = 1; firstPin = "";
+        setTimeout(function () { setNotice(err.message || "", true); goDetails(); }, 1100);
+      });
+  }
+
+  function afterAuth() {
+    dotsEl.classList.add("ok");
+    setMsg("good", flow === "register" ? "Account created" : "Welcome back");
+    pinInput.blur();
+    if (status.secure && canBio()) setTimeout(showEnroll, 480);
+    else setTimeout(goIn, 620);
+  }
+
+  function fail(text, clear) {
+    busy = false;
+    setMsg("bad", text);
+    dotsEl.classList.add("err");
+    shaker.classList.add("shake");
+    if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
+    setTimeout(function () { shaker.classList.remove("shake"); }, 440);
+    if (clear) {
+      busy = true;
+      setTimeout(function () { busy = false; dotsEl.classList.remove("err"); clearPin(); }, 520);
+    }
+  }
+
+  /* ---------- biometric (WebAuthn) ---------- */
+  function showEnroll() { enrollEl.classList.add("show"); enrollEl.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  document.getElementById("enrollSkip").addEventListener("click", goIn);
+  document.getElementById("enrollGo").addEventListener("click", function () {
+    enrollBiometric().then(goIn).catch(function (err) { setMsg("bad", friendlyWebauthn(err)); setTimeout(goIn, 1400); });
+  });
+  function friendlyWebauthn(err) {
+    if (err && err.name === "NotAllowedError") return "Passkey cancelled or timed out";
+    if (err && err.name === "SecurityError") return "Passkey needs HTTPS on a hostname";
+    return (err && err.message) || "Passkey unavailable on this device";
+  }
+  function enrollBiometric() {
+    return postJSON("/api/auth/webauthn/register/options", {}).then(function (opt) {
+      var pk = opt.publicKey;
+      pk.challenge = b64urlToBuf(pk.challenge);
+      pk.user.id = b64urlToBuf(pk.user.id);
+      if (pk.excludeCredentials) pk.excludeCredentials = pk.excludeCredentials.map(function (c) { return { type: c.type, id: b64urlToBuf(c.id) }; });
+      return navigator.credentials.create({ publicKey: pk }).then(function (cred) {
+        return postJSON("/api/auth/webauthn/register/verify", {
+          cid: opt.cid,
+          clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+          attestationObject: bufToB64url(cred.response.attestationObject)
+        });
+      });
+    });
+  }
+  // Passkey login. `email` scopes to one account; omit for a usernameless prompt.
+  function authBiometric(email) {
+    var body = email ? { email: email } : {};
+    return postJSON("/api/auth/webauthn/auth/options", body).then(function (opt) {
+      var pk = opt.publicKey;
+      pk.challenge = b64urlToBuf(pk.challenge);
+      if (pk.allowCredentials) pk.allowCredentials = pk.allowCredentials.map(function (c) { return { type: c.type, id: b64urlToBuf(c.id) }; });
+      return navigator.credentials.get({ publicKey: pk }).then(function (assertion) {
+        return postJSON("/api/auth/webauthn/auth/verify", {
+          cid: opt.cid,
+          id: assertion.id,
+          clientDataJSON: bufToB64url(assertion.response.clientDataJSON),
+          authenticatorData: bufToB64url(assertion.response.authenticatorData),
+          signature: bufToB64url(assertion.response.signature)
+        });
+      });
+    });
+  }
+  function onBiometric() {
+    if (busy || flow === "register") return;
+    if (!status.webauthnAvailable) { setMsg("", "Log in once, then add a passkey"); return; }
+    if (!status.secure || !canBio()) { setMsg("bad", "Passkey unlock requires HTTPS"); return; }
+    busy = true;
+    setMsg("", "Waiting for Face ID / Touch ID...");
+    authBiometric(acct.email)
+      .then(function () { dotsEl.classList.add("ok"); setMsg("good", "Welcome back"); setTimeout(goIn, 500); })
+      .catch(function (err) { busy = false; setMsg("bad", friendlyWebauthn(err)); });
+  }
+
+  /* ---------- input wiring ---------- */
+  pinInput.addEventListener("input", function () { setPin(pinInput.value); });
+  barForm.addEventListener("submit", function (e) { e.preventDefault(); submitPin(); });
+  document.addEventListener("keydown", function (e) {
+    if (screen !== "pin") return;
+    if (e.target === pinInput) return;
+    if (/^[0-9]$/.test(e.key)) setPin(pin + e.key);
+    else if (e.key === "Backspace") setPin(pin.slice(0, -1));
+    else if (e.key === "Enter") submitPin();
+  });
+  detailsBtn.addEventListener("click", submitDetails);
+  [inFirst, inLast, inEmail].forEach(function (el) {
+    el.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); submitDetails(); } });
+    el.addEventListener("input", function () { setNotice("", false); });
+  });
+  pkLoginBtn.addEventListener("click", function () {
+    if (busy) return;
+    busy = true; setNotice("Waiting for your passkey...", false);
+    authBiometric(null).then(goIn).catch(function (err) { busy = false; setNotice(friendlyWebauthn(err), true); });
+  });
+  switchBtn.addEventListener("click", function () {
+    flow = (flow === "register") ? "login" : "register";
+    setNotice("", false);
+    goDetails();
+  });
+  backBtn.addEventListener("click", goDetails);
+  bioBtn.addEventListener("click", onBiometric);
+  basicBtn.addEventListener("click", function () {
+    // The lifeline. Hand the server the app id rather than a URL, so it resolves the
+    // way back from its own registry (nextTarget() here is an absolute app address,
+    // which the server deliberately refuses to redirect to).
+    location.href = "/api/auth/basic?" + (ssoApp ? "app=" + encodeURIComponent(ssoApp.id)
+      : "next=" + encodeURIComponent(nextTarget()));
+  });
+
+  /* ---------- init ---------- */
+  renderDots();
+  if (ssoApp) {
+    document.querySelector(".brand").lastChild.textContent = ssoApp.name;
+    document.title = ssoApp.name + " · Sign in";
+  }
+  inviteToken = new URLSearchParams(location.search).get("invite") || "";
+  var statusUrl = "/api/auth/status" + (inviteToken ? ("?invite=" + encodeURIComponent(inviteToken)) : "");
+  fetch(statusUrl).then(function (r) { return r.json(); }).then(function (s) {
+    status = s || status;
+    if (status.authed) { goIn(); return; }
+    ownerSetup = !!status.bootstrap;
+    canRegister = ownerSetup || !!status.inviteValid;
+    if (ownerSetup) flow = "register";
+    else if (inviteToken && status.inviteValid) flow = "register";
+    else {
+      flow = "login";
+      if (inviteToken && !status.inviteValid) setNotice("That invite link is invalid or has already been used. Log in if you already have an account.", true);
+    }
+    goDetails();
+  }).catch(function () { flow = "login"; goDetails(); });
+})();
+</script>
+</body>
+</html>

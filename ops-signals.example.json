@@ -1,0 +1,25 @@
+{
+  "_README": [
+    "Live production error digests fed into scheduled Operations runs. OPTIONAL and off by default.",
+    "",
+    "Copy to data/ops-signals.json (gitignored) and replace the placeholders, or set the OPS_SIGNALS",
+    "env var to this same JSON object (env wins over the file).",
+    "",
+    "Each top-level key is a PROJECT directory name under WORKSPACES_ROOT — the same name a task targets.",
+    "For each project, PlumiChat fetches a REDACTED error digest from <baseUrl><path>, server-side, using",
+    "the header 'X-API-Key: <apiKey>', and injects it into that project's scheduled runs as the freshest",
+    "'what is broken right now' section.",
+    "",
+    "The apiKey never enters a prompt, a tool call, or the agent's view — it is used by the server only.",
+    "Your endpoint is responsible for redaction: whatever it returns goes into the prompt, so it must not",
+    "contain PII or secrets.",
+    "",
+    "Leave a placeholder containing PASTE_ to keep a project disabled. Unconfigured projects run normally.",
+    "Keys starting with '_' are ignored — they are never treated as a project."
+  ],
+  "my-project": {
+    "baseUrl": "https://PASTE_YOUR_APP_BASE_URL.example.com",
+    "apiKey": "PASTE_YOUR_ADMIN_API_KEY",
+    "path": "/api/ops/errors"
+  }
+}

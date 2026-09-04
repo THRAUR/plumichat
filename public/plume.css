@@ -1,0 +1,880 @@
+/* ============================================================
+   PLUME — PlumiChat's design system.
+   ============================================================
+   PlumiChat is a window onto a machine that is not in the room, so
+   Plume's early-Macintosh vocabulary is taken literally here:
+   every overlay is a WINDOW with a striped drag-bar, the sidebar
+   is a labelled rack of the machine's subsystems, and the screen
+   inside a screen (code, terminal) stays phosphor-dark in BOTH
+   modes because a screen is always a screen.
+
+   Loaded FIRST on every page, before style.css / ui.css. It owns:
+     1. the four typefaces (self-hosted — the phone must not need
+        Google to render the product it installed to its home screen)
+     2. the palette, published under the variable names the existing
+        stylesheets already use, so 3,400 lines of PlumiChat keep
+        working and simply render in Plume
+     3. the primitives every page shares: window chrome, eyebrow,
+        tag, hairline rule, focus ring.
+
+   The token names below are PlumiChat's (--surface-2, --line-strong,
+   …). Every value below is measured, not eyeballed — see section 2b.
+   src/tokens.ts. Where PlumiChat needed a step Plume does not name
+   (--surface-3), it is interpolated between two Plume steps, never
+   invented from a different hue.
+
+   ONE ACCENT RULE (the reason this file exists): terracotta is the
+   only chromatic colour, and it appears once per screen region.
+   Sage/amber/brick are STATES, not brand colours, and nothing else
+   is allowed to be coloured — the old build accented the avatar,
+   the model dot, the perm chip, the pinned group and the live dot
+   all at once, which is why nothing read as important.
+   ============================================================ */
+
+/* ---------- 1. typefaces ----------
+   latin + latin-ext only (196 KB total). CJK is deliberately NOT
+   subsetted in: --font-body falls through to system-ui, which is
+   PingFang on iOS, so Traditional Chinese renders in the platform
+   face instead of a tofu grid. */
+@font-face {
+  font-family: "Pixelify Sans"; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url(/fonts/pixelify-sans-normal-400-700-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Pixelify Sans"; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url(/fonts/pixelify-sans-normal-400-700-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Silkscreen"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/fonts/silkscreen-normal-400-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Silkscreen"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/fonts/silkscreen-normal-400-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Silkscreen"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(/fonts/silkscreen-normal-700-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Silkscreen"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(/fonts/silkscreen-normal-700-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Karla"; font-style: normal; font-weight: 300 800; font-display: swap;
+  src: url(/fonts/karla-normal-300-800-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Karla"; font-style: normal; font-weight: 300 800; font-display: swap;
+  src: url(/fonts/karla-normal-300-800-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Karla"; font-style: italic; font-weight: 300 800; font-display: swap;
+  src: url(/fonts/karla-italic-300-800-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Karla"; font-style: italic; font-weight: 300 800; font-display: swap;
+  src: url(/fonts/karla-italic-300-800-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrains Mono"; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url(/fonts/jetbrains-mono-normal-400-700-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono"; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url(/fonts/jetbrains-mono-normal-400-700-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ---------- 2. palette ----------
+   Default is PHOSPHOR (Plume's dark). PlumiChat is a terminal, read
+   on a phone at night; paper-white is the deliberate opt-in. */
+:root {
+  /* — surfaces, dark to light — */
+  --bg: #141210;            /* Plume "paper" (phosphor) */
+  --surface: #1E1B16;       /* Plume "surface" — cards, rows, windows */
+  --surface-2: #262119;     /* one step up: hover, inset fields */
+  --surface-3: #322C22;     /* two steps: pressed, scrollbar thumb, chips */
+  --sunk: #0F0D0B;          /* recessed wells */
+  --panel-bg: #1A1713;      /* window body — a half-step off --surface */
+  --bar-bg: rgba(20, 18, 16, 0.86);
+
+  /* — hairlines — */
+  --line: #2A2620;
+  --line-strong: #3A352C;
+
+  /* — ink — */
+  --text: #F2ECDD;
+  --muted: #C7BFAE;
+  --faint: #8E8677;
+
+  /* — the one accent — */
+  --accent: #E8A06F;        /* FILLS */
+  --accent-base: #E8A06F;   /* the palette's OWN accent, never overridden by a
+                               custom one — so the "Theme default" swatch can
+                               show what it would revert TO, not what is live. */
+  --accent-text: #E8A06F;   /* TEXT (identical in phosphor; differs on paper) */
+  --accent-dim: rgba(232, 160, 111, 0.14);
+  --accent-line: rgba(232, 160, 111, 0.42);
+  --on-accent: #1A1006;
+
+  /* — states, never brand — */
+  --green: #9DB79A;
+  --green-dim: rgba(157, 183, 154, 0.14);
+  --green-line: rgba(157, 183, 154, 0.36);
+  --warn: #E0A94E;
+  --warn-dim: rgba(224, 169, 78, 0.14);
+  --warn-line: rgba(224, 169, 78, 0.4);
+  --amber: #E0A94E;
+  --amber-dim: rgba(224, 169, 78, 0.14);
+  --amber-line: rgba(224, 169, 78, 0.4);
+  --error: #E2726A;
+  --error-dim: rgba(226, 114, 106, 0.13);
+  --error-line: rgba(226, 114, 106, 0.38);
+  --on-danger: #2A0E0B;
+
+  /* Operations' pipeline + area badges. Plume allows ONE accent, so
+     these three are no longer three more brand colours: ship borrows
+     the accent (it IS the one important action on that board) and the
+     area badges go monochrome — their icons already tell them apart,
+     which is also the "never rely on colour alone" rule. */
+  --ship: #E8A06F;
+  --ship-dim: rgba(232, 160, 111, 0.14);
+  --ship-line: rgba(232, 160, 111, 0.42);
+  --pink: #C7BFAE;
+  --pink-dim: rgba(199, 191, 174, 0.10);
+  --pink-line: rgba(199, 191, 174, 0.26);
+  --orange: #C7BFAE;
+  --orange-dim: rgba(199, 191, 174, 0.10);
+  --orange-line: rgba(199, 191, 174, 0.26);
+
+  /* A screen inside a screen stays phosphor in both modes. */
+  --code-bg: #100E0C;
+  --code-line: #262119;
+  --code-text: #E8E2D3;
+
+  /* — type — */
+  --font-display: "Pixelify Sans", ui-monospace, monospace;
+  --font-label: "Silkscreen", "Pixelify Sans", ui-monospace, monospace;
+  --sans: "Karla", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* — shape: sharp UI, rounded windows — */
+  --r-sm: 2px;    /* inputs, chips, small buttons */
+  --r-md: 4px;    /* cards, rows, buttons */
+  --r-win: 9px;   /* the top corners of a window */
+  --radius: 4px;  /* legacy alias used by style.css */
+  --bw: 1px;
+
+  /* — hard-offset shadows, no blur — */
+  --shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.45);
+  --shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.55);
+  --shadow-lg: 5px 5px 0 rgba(0, 0, 0, 0.6);
+  --shadow-win: 0 14px 34px -18px rgba(0, 0, 0, 0.85);
+
+  /* — motion — */
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 280ms;
+  --ease-snap: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* — the rack unit: one height for every list row in the product — */
+  --row-h: 44px;
+  /* — the header unit: the sidebar head and the conversation top bar are two
+     halves of ONE bar on desktop, so their hairlines must land on the same
+     pixel. Their contents differ (36px icon buttons vs a 31.5px picker), which
+     is exactly why the height is a token and not an accident of padding. — */
+  --head-h: 56px;
+}
+
+/* PAPER — Plume's light mode. The accent splits in two here: #E0915E
+   is a fill only (it fails AA as text on paper), #894728 is the text
+   and link colour. Every `color: var(--accent)` in the codebase was
+   moved to --accent-text for exactly this reason.
+
+   #894728, not the #A85731 this shipped with. --accent-text is not only
+   used on the page background: it is the colour of an accented label
+   inside a menu, a chip or a card, and those are painted --surface-2 and
+   --surface-3. #A85731 measured 4.41 on --surface-2 and 3.85 on
+   --surface-3 — below AA on exactly the surfaces accented text actually
+   sits on, while passing the --bg it was checked against. The rule is
+   therefore: an accent TEXT colour is derived against --surface-3, the
+   backdrop furthest from it in BOTH palettes (the lightest in phosphor,
+   the darkest on paper) — and against --accent-dim OVER it, because an
+   accented label is usually sitting on its own tint (a selected chip, an
+   armed button, the open conversation). Clearing that clears every
+   surface stacked above it. Same hue, just darker; theme.js applies the
+   identical rule to a custom accent. */
+html[data-theme="light"] {
+  --bg: #F8F6F1;
+  --surface: #FFFFFF;
+  --surface-2: #F1EDE4;
+  --surface-3: #E4DED1;
+  --sunk: #EFEBE2;
+  --panel-bg: #FFFFFF;
+  --bar-bg: rgba(248, 246, 241, 0.86);
+
+  --line: #E2DDD2;
+  --line-strong: #CFC8B8;
+
+  --text: #1A1813;
+  --muted: #55514A;
+  --faint: #7D786E;   /* #8A857A scored 2.74 on --surface (white); the floor the
+                         named palettes are held to is 3.2, and paper should not
+                         be the one exception. Same hue, darker. */
+
+  --accent: #E0915E;
+  --accent-base: #E0915E;
+  --accent-text: #894728;   /* AA on a TINTED --surface-3, see above */
+  --accent-dim: rgba(224, 145, 94, 0.16);
+  --accent-line: rgba(168, 87, 49, 0.40);
+  --on-accent: #2A1A10;
+
+  --green: #5F7D5C;
+  --green-dim: rgba(95, 125, 92, 0.13);
+  --green-line: rgba(95, 125, 92, 0.34);
+  --warn: #9A6612;
+  --warn-dim: rgba(154, 102, 18, 0.12);
+  --warn-line: rgba(154, 102, 18, 0.34);
+  --amber: #9A6612;
+  --amber-dim: rgba(154, 102, 18, 0.12);
+  --amber-line: rgba(154, 102, 18, 0.34);
+  --error: #B4443C;
+  --error-dim: rgba(180, 68, 60, 0.10);
+  --error-line: rgba(180, 68, 60, 0.32);
+  --on-danger: #FFF6F0;
+
+  --ship: #A85731;
+  --ship-dim: rgba(224, 145, 94, 0.16);
+  --ship-line: rgba(168, 87, 49, 0.40);
+  --pink: #55514A;
+  --pink-dim: rgba(85, 81, 74, 0.08);
+  --pink-line: rgba(85, 81, 74, 0.22);
+  --orange: #55514A;
+  --orange-dim: rgba(85, 81, 74, 0.08);
+  --orange-line: rgba(85, 81, 74, 0.22);
+
+  --shadow-sm: 2px 2px 0 rgba(26, 24, 19, 0.10);
+  --shadow-md: 3px 3px 0 rgba(26, 24, 19, 0.14);
+  --shadow-lg: 5px 5px 0 rgba(26, 24, 19, 0.16);
+  --shadow-win: 0 10px 30px -18px rgba(26, 24, 19, 0.45);
+}
+
+html { color-scheme: dark; }
+html[data-theme="light"] { color-scheme: light; }
+
+/* ---------- 2b. the named palettes ----------
+   Plume stays the default and the house style; these are the schemes people
+   already read code in all day, offered because a terminal you keep on your
+   phone should look like the terminal you keep on your desk. Popularity is not
+   a guess — Gruvbox, Catppuccin, Tokyo Night, Nord and Dracula top every
+   round-up and marketplace install count, and Solarized is the elder.
+
+   They ride on data-palette, NOT data-theme. data-theme stays "light"/"dark"
+   because four CSS selectors (color-scheme here and on two pages, login's
+   --glow) and two JS comparisons read it as exactly that; a palette also sets
+   the data-theme its character belongs to, so all of them keep working
+   untouched. Equal specificity to html[data-theme="light"], so these must stay
+   BELOW it in the file for a light palette to win.
+
+   Every value below is GENERATED from each scheme's own published anchors and
+   verified, never hand-picked: text/muted/accent-text >= 4.5 and faint >= 3.2
+   against --bg and every surface, --on-accent >= 4.5 on its fill, and
+   --accent-text against --accent-dim over --surface-3 (the rule in section 2).
+   Five anchors had to move to clear a floor, all hue-preserving:
+     gruvbox faint  #A89984 -> #AA9B86      dracula faint  #8B93BE -> #9097C1
+     latte faint    #7C7F93 -> #777A8D      solarized muted #586E75 -> #4E6168
+     solarized faint #7A8B8B -> #6A7979
+   Solarized's blue is #2074AF as a FILL, not the canonical #268BD2: neither of
+   Plume's two inks clears AA on #268BD2 (best 4.08), and --accent's whole job
+   is to carry --on-accent. Its TEXT variant is derived separately, so the
+   canonical blue is unaffected where it is read as a word. */
+
+html[data-palette="tokyo"] {
+  --bg: #1A1B26;
+  --surface: #1F2335;
+  --surface-2: #24283B;
+  --surface-3: #292E42;
+  --sunk: #16161E;
+  --panel-bg: #1B1E2D;
+  --bar-bg: rgba(26, 27, 38, 0.86);
+
+  --line: #2A2E43;
+  --line-strong: #3B4261;
+
+  --text: #C0CAF5;
+  --muted: #A9B1D6;
+  --faint: #7A82A8;
+
+  --accent: #7AA2F7;
+  --accent-base: #7AA2F7;   /* the palette's OWN accent — never overridden */
+  --accent-text: #84A9F8;
+  --accent-dim: rgba(122, 162, 247, 0.14);
+  --accent-line: rgba(122, 162, 247, 0.42);
+  --on-accent: #16161E;
+
+  --green: #9ECE6A;
+  --green-dim: rgba(158, 206, 106, 0.13);
+  --green-line: rgba(158, 206, 106, 0.34);
+  --warn: #E0AF68;
+  --warn-dim: rgba(224, 175, 104, 0.13);
+  --warn-line: rgba(224, 175, 104, 0.34);
+  --amber: #E0AF68;
+  --amber-dim: rgba(224, 175, 104, 0.13);
+  --amber-line: rgba(224, 175, 104, 0.34);
+  --error: #F7768E;
+  --error-dim: rgba(247, 118, 142, 0.13);
+  --error-line: rgba(247, 118, 142, 0.34);
+  --on-danger: #C0CAF5;
+
+  --ship: #84A9F8;
+  --ship-dim: rgba(122, 162, 247, 0.14);
+  --ship-line: rgba(122, 162, 247, 0.4);
+  --pink: #BB9AF7;
+  --pink-dim: rgba(187, 154, 247, 0.13);
+  --pink-line: rgba(187, 154, 247, 0.34);
+  --orange: #FF9E64;
+  --orange-dim: rgba(255, 158, 100, 0.13);
+  --orange-line: rgba(255, 158, 100, 0.34);
+
+  --shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.38);
+  --shadow-lg: 5px 5px 0 rgba(0, 0, 0, 0.44);
+  --shadow-win: 0 10px 30px -18px rgba(0, 0, 0, 0.75);
+}
+html[data-palette="tokyo"] { color-scheme: dark; }
+
+html[data-palette="mocha"] {
+  --bg: #1E1E2E;
+  --surface: #282839;
+  --surface-2: #313244;
+  --surface-3: #45475A;
+  --sunk: #11111B;
+  --panel-bg: #181825;
+  --bar-bg: rgba(30, 30, 46, 0.86);
+
+  --line: #313244;
+  --line-strong: #45475A;
+
+  --text: #CDD6F4;
+  --muted: #BAC2DE;
+  --faint: #9399B2;
+
+  --accent: #FAB387;
+  --accent-base: #FAB387;   /* the palette's OWN accent — never overridden */
+  --accent-text: #FBC4A1;
+  --accent-dim: rgba(250, 179, 135, 0.14);
+  --accent-line: rgba(250, 179, 135, 0.42);
+  --on-accent: #11111B;
+
+  --green: #A6E3A1;
+  --green-dim: rgba(166, 227, 161, 0.13);
+  --green-line: rgba(166, 227, 161, 0.34);
+  --warn: #F9E2AF;
+  --warn-dim: rgba(249, 226, 175, 0.13);
+  --warn-line: rgba(249, 226, 175, 0.34);
+  --amber: #F9E2AF;
+  --amber-dim: rgba(249, 226, 175, 0.13);
+  --amber-line: rgba(249, 226, 175, 0.34);
+  --error: #F38BA8;
+  --error-dim: rgba(243, 139, 168, 0.13);
+  --error-line: rgba(243, 139, 168, 0.34);
+  --on-danger: #CDD6F4;
+
+  --ship: #FBC4A1;
+  --ship-dim: rgba(250, 179, 135, 0.14);
+  --ship-line: rgba(250, 179, 135, 0.4);
+  --pink: #F5C2E7;
+  --pink-dim: rgba(245, 194, 231, 0.13);
+  --pink-line: rgba(245, 194, 231, 0.34);
+  --orange: #FAB387;
+  --orange-dim: rgba(250, 179, 135, 0.13);
+  --orange-line: rgba(250, 179, 135, 0.34);
+
+  --shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.38);
+  --shadow-lg: 5px 5px 0 rgba(0, 0, 0, 0.44);
+  --shadow-win: 0 10px 30px -18px rgba(0, 0, 0, 0.75);
+}
+html[data-palette="mocha"] { color-scheme: dark; }
+
+html[data-palette="nord"] {
+  --bg: #2E3440;
+  --surface: #353C4A;
+  --surface-2: #3B4252;
+  --surface-3: #434C5E;
+  --sunk: #272B35;
+  --panel-bg: #323846;
+  --bar-bg: rgba(46, 52, 64, 0.86);
+
+  --line: #3B4252;
+  --line-strong: #4C566A;
+
+  --text: #ECEFF4;
+  --muted: #D8DEE9;
+  --faint: #9BA8BF;
+
+  --accent: #88C0D0;
+  --accent-base: #88C0D0;   /* the palette's OWN accent — never overridden */
+  --accent-text: #B6D8E2;
+  --accent-dim: rgba(136, 192, 208, 0.14);
+  --accent-line: rgba(136, 192, 208, 0.42);
+  --on-accent: #272B35;
+
+  --green: #A3BE8C;
+  --green-dim: rgba(163, 190, 140, 0.13);
+  --green-line: rgba(163, 190, 140, 0.34);
+  --warn: #EBCB8B;
+  --warn-dim: rgba(235, 203, 139, 0.13);
+  --warn-line: rgba(235, 203, 139, 0.34);
+  --amber: #EBCB8B;
+  --amber-dim: rgba(235, 203, 139, 0.13);
+  --amber-line: rgba(235, 203, 139, 0.34);
+  --error: #BF616A;
+  --error-dim: rgba(191, 97, 106, 0.13);
+  --error-line: rgba(191, 97, 106, 0.34);
+  --on-danger: #ECEFF4;
+
+  --ship: #B6D8E2;
+  --ship-dim: rgba(136, 192, 208, 0.14);
+  --ship-line: rgba(136, 192, 208, 0.4);
+  --pink: #B48EAD;
+  --pink-dim: rgba(180, 142, 173, 0.13);
+  --pink-line: rgba(180, 142, 173, 0.34);
+  --orange: #D08770;
+  --orange-dim: rgba(208, 135, 112, 0.13);
+  --orange-line: rgba(208, 135, 112, 0.34);
+
+  --shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.38);
+  --shadow-lg: 5px 5px 0 rgba(0, 0, 0, 0.44);
+  --shadow-win: 0 10px 30px -18px rgba(0, 0, 0, 0.75);
+}
+html[data-palette="nord"] { color-scheme: dark; }
+
+html[data-palette="gruvbox"] {
+  --bg: #282828;
+  --surface: #32302F;
+  --surface-2: #3C3836;
+  --surface-3: #504945;
+  --sunk: #1D2021;
+  --panel-bg: #2E2C2B;
+  --bar-bg: rgba(40, 40, 40, 0.86);
+
+  --line: #3C3836;
+  --line-strong: #504945;
+
+  --text: #EBDBB2;
+  --muted: #D5C4A1;
+  --faint: #AA9B86;
+
+  --accent: #FE8019;
+  --accent-base: #FE8019;   /* the palette's OWN accent — never overridden */
+  --accent-text: #FEBD87;
+  --accent-dim: rgba(254, 128, 25, 0.14);
+  --accent-line: rgba(254, 128, 25, 0.42);
+  --on-accent: #1D2021;
+
+  --green: #B8BB26;
+  --green-dim: rgba(184, 187, 38, 0.13);
+  --green-line: rgba(184, 187, 38, 0.34);
+  --warn: #FABD2F;
+  --warn-dim: rgba(250, 189, 47, 0.13);
+  --warn-line: rgba(250, 189, 47, 0.34);
+  --amber: #FABD2F;
+  --amber-dim: rgba(250, 189, 47, 0.13);
+  --amber-line: rgba(250, 189, 47, 0.34);
+  --error: #FB4934;
+  --error-dim: rgba(251, 73, 52, 0.13);
+  --error-line: rgba(251, 73, 52, 0.34);
+  --on-danger: #FBF1C7;
+
+  --ship: #FEBD87;
+  --ship-dim: rgba(254, 128, 25, 0.14);
+  --ship-line: rgba(254, 128, 25, 0.4);
+  --pink: #D3869B;
+  --pink-dim: rgba(211, 134, 155, 0.13);
+  --pink-line: rgba(211, 134, 155, 0.34);
+  --orange: #FE8019;
+  --orange-dim: rgba(254, 128, 25, 0.13);
+  --orange-line: rgba(254, 128, 25, 0.34);
+
+  --shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.38);
+  --shadow-lg: 5px 5px 0 rgba(0, 0, 0, 0.44);
+  --shadow-win: 0 10px 30px -18px rgba(0, 0, 0, 0.75);
+}
+html[data-palette="gruvbox"] { color-scheme: dark; }
+
+html[data-palette="dracula"] {
+  --bg: #282A36;
+  --surface: #2F313F;
+  --surface-2: #383A4C;
+  --surface-3: #44475A;
+  --sunk: #21222C;
+  --panel-bg: #2B2D3A;
+  --bar-bg: rgba(40, 42, 54, 0.86);
+
+  --line: #383A4C;
+  --line-strong: #44475A;
+
+  --text: #F8F8F2;
+  --muted: #D6D8E8;
+  --faint: #9097C1;
+
+  --accent: #BD93F9;
+  --accent-base: #BD93F9;   /* the palette's OWN accent — never overridden */
+  --accent-text: #D8BFFB;
+  --accent-dim: rgba(189, 147, 249, 0.14);
+  --accent-line: rgba(189, 147, 249, 0.42);
+  --on-accent: #21222C;
+
+  --green: #50FA7B;
+  --green-dim: rgba(80, 250, 123, 0.13);
+  --green-line: rgba(80, 250, 123, 0.34);
+  --warn: #F1FA8C;
+  --warn-dim: rgba(241, 250, 140, 0.13);
+  --warn-line: rgba(241, 250, 140, 0.34);
+  --amber: #F1FA8C;
+  --amber-dim: rgba(241, 250, 140, 0.13);
+  --amber-line: rgba(241, 250, 140, 0.34);
+  --error: #FF5555;
+  --error-dim: rgba(255, 85, 85, 0.13);
+  --error-line: rgba(255, 85, 85, 0.34);
+  --on-danger: #F8F8F2;
+
+  --ship: #D8BFFB;
+  --ship-dim: rgba(189, 147, 249, 0.14);
+  --ship-line: rgba(189, 147, 249, 0.4);
+  --pink: #FF79C6;
+  --pink-dim: rgba(255, 121, 198, 0.13);
+  --pink-line: rgba(255, 121, 198, 0.34);
+  --orange: #FFB86C;
+  --orange-dim: rgba(255, 184, 108, 0.13);
+  --orange-line: rgba(255, 184, 108, 0.34);
+
+  --shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 3px 3px 0 rgba(0, 0, 0, 0.38);
+  --shadow-lg: 5px 5px 0 rgba(0, 0, 0, 0.44);
+  --shadow-win: 0 10px 30px -18px rgba(0, 0, 0, 0.75);
+}
+html[data-palette="dracula"] { color-scheme: dark; }
+
+html[data-palette="latte"] {
+  --bg: #EFF1F5;
+  --surface: #FFFFFF;
+  --surface-2: #E6E9EF;
+  --surface-3: #DCE0E8;
+  --sunk: #E6E9EF;
+  --panel-bg: #FFFFFF;
+  --bar-bg: rgba(239, 241, 245, 0.86);
+
+  --line: #CCD0DA;
+  --line-strong: #BCC0CC;
+
+  --text: #4C4F69;
+  --muted: #5C5F77;
+  --faint: #777A8D;
+
+  --accent: #FE640B;
+  --accent-base: #FE640B;   /* the palette's OWN accent — never overridden */
+  --accent-text: #953B06;
+  --accent-dim: rgba(254, 100, 11, 0.16);
+  --accent-line: rgba(254, 100, 11, 0.4);
+  --on-accent: #11111B;
+
+  --green: #40A02B;
+  --green-dim: rgba(64, 160, 43, 0.12);
+  --green-line: rgba(64, 160, 43, 0.34);
+  --warn: #DF8E1D;
+  --warn-dim: rgba(223, 142, 29, 0.12);
+  --warn-line: rgba(223, 142, 29, 0.34);
+  --amber: #DF8E1D;
+  --amber-dim: rgba(223, 142, 29, 0.12);
+  --amber-line: rgba(223, 142, 29, 0.34);
+  --error: #D20F39;
+  --error-dim: rgba(210, 15, 57, 0.12);
+  --error-line: rgba(210, 15, 57, 0.34);
+  --on-danger: #FFFFFF;
+
+  --ship: #953B06;
+  --ship-dim: rgba(254, 100, 11, 0.16);
+  --ship-line: rgba(254, 100, 11, 0.4);
+  --pink: #EA76CB;
+  --pink-dim: rgba(234, 118, 203, 0.12);
+  --pink-line: rgba(234, 118, 203, 0.34);
+  --orange: #FE640B;
+  --orange-dim: rgba(254, 100, 11, 0.12);
+  --orange-line: rgba(254, 100, 11, 0.34);
+
+  --shadow-sm: 2px 2px 0 rgba(230, 233, 239, 0.1);
+  --shadow-md: 3px 3px 0 rgba(230, 233, 239, 0.14);
+  --shadow-lg: 5px 5px 0 rgba(230, 233, 239, 0.16);
+  --shadow-win: 0 10px 30px -18px rgba(230, 233, 239, 0.45);
+}
+html[data-palette="latte"] { color-scheme: light; }
+
+html[data-palette="solarized"] {
+  --bg: #FDF6E3;
+  --surface: #FFFFFF;
+  --surface-2: #EEE8D5;
+  --surface-3: #E0D9C3;
+  --sunk: #EEE8D5;
+  --panel-bg: #FFFFFF;
+  --bar-bg: rgba(253, 246, 227, 0.86);
+
+  --line: #E4DCC6;
+  --line-strong: #CFC7AE;
+
+  --text: #073642;
+  --muted: #4E6168;
+  --faint: #6A7979;
+
+  --accent: #2074AF;
+  --accent-base: #2074AF;   /* the palette's OWN accent — never overridden */
+  --accent-text: #185784;
+  --accent-dim: rgba(32, 116, 175, 0.16);
+  --accent-line: rgba(32, 116, 175, 0.4);
+  --on-accent: #FDF6E3;
+
+  --green: #719E07;
+  --green-dim: rgba(113, 158, 7, 0.12);
+  --green-line: rgba(113, 158, 7, 0.34);
+  --warn: #B58900;
+  --warn-dim: rgba(181, 137, 0, 0.12);
+  --warn-line: rgba(181, 137, 0, 0.34);
+  --amber: #B58900;
+  --amber-dim: rgba(181, 137, 0, 0.12);
+  --amber-line: rgba(181, 137, 0, 0.34);
+  --error: #DC322F;
+  --error-dim: rgba(220, 50, 47, 0.12);
+  --error-line: rgba(220, 50, 47, 0.34);
+  --on-danger: #FDF6E3;
+
+  --ship: #185784;
+  --ship-dim: rgba(32, 116, 175, 0.16);
+  --ship-line: rgba(32, 116, 175, 0.4);
+  --pink: #D33682;
+  --pink-dim: rgba(211, 54, 130, 0.12);
+  --pink-line: rgba(211, 54, 130, 0.34);
+  --orange: #CB4B16;
+  --orange-dim: rgba(203, 75, 22, 0.12);
+  --orange-line: rgba(203, 75, 22, 0.34);
+
+  --shadow-sm: 2px 2px 0 rgba(238, 232, 213, 0.1);
+  --shadow-md: 3px 3px 0 rgba(238, 232, 213, 0.14);
+  --shadow-lg: 5px 5px 0 rgba(238, 232, 213, 0.16);
+  --shadow-win: 0 10px 30px -18px rgba(238, 232, 213, 0.45);
+}
+html[data-palette="solarized"] { color-scheme: light; }
+
+/* ---------- 3. base ---------- */
+::selection { background: var(--accent); color: var(--on-accent); }
+
+/* One focus ring for the whole product. Terracotta, 2.5px, offset —
+   visible on paper and on phosphor without a per-component override. */
+:focus-visible {
+  outline: 2.5px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+/* Pointer users never see it; keyboard and switch-control users always do. */
+:focus:not(:focus-visible) { outline: none; }
+
+/* ---------- 4. Plume primitives ----------
+   Prefixed `pl-` so they can never collide with the three existing
+   stylesheets. Everything here is markup-free where possible: the
+   window chrome attaches to PlumiChat's EXISTING title bars through a
+   class, so no JS had to learn a new DOM. */
+
+/* --- the signature: a Macintosh window ---
+   Rounded at the top, square at the bottom, 1px border, hard shadow.
+   `.pl-titlebar` fills itself with horizontal drag stripes and the
+   title knocks a hole in them, exactly like System 1. */
+.pl-win {
+  background: var(--panel-bg);
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-win) var(--r-win) var(--r-md) var(--r-md);
+  box-shadow: var(--shadow-win);
+  overflow: hidden;
+}
+.pl-titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 38px;
+  padding: 0 8px 0 10px;
+  border-bottom: var(--bw) solid var(--line-strong);
+  background: var(--surface-2);
+  /* the stripes: six 1px rules on a 3px pitch, centred vertically */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--line-strong) 0 1px,
+    transparent 1px 3px
+  );
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 17px;
+  user-select: none;
+}
+/* Any direct child that carries text has to paint the bar's own colour
+   behind itself, or the stripes run straight through the words. */
+.pl-titlebar > * {
+  position: relative;
+  background: var(--surface-2);
+}
+.pl-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* The close square. A 1px outlined pixel box that fills on press — the
+   Mac close box, at a 44px tap target. */
+.pl-close {
+  flex: none;
+  width: 44px; height: 30px;
+  display: grid; place-items: center;
+  border: 0; background: var(--surface-2); padding: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pl-close::before {
+  content: "";
+  width: 13px; height: 13px;
+  border: 1.5px solid currentColor;
+  border-radius: 1px;
+  transition: background var(--dur-fast) linear;
+}
+.pl-close:hover { color: var(--text); }
+.pl-close:hover::before { background: currentColor; }
+.pl-close:active::before { background: var(--accent); border-color: var(--accent); }
+.pl-close svg { display: none; }   /* the pixel square replaces the icon */
+
+/* --- avatar ---
+   A photo or an initial, and it has to be framed identically in all four places
+   it appears: the profile card, the settings side-nav, the chat side menu and a
+   member row. The FRAMING lives here, once, and every call site sets nothing but
+   `background-image`.
+
+   Say `background-color` and never `background` when styling one. The shorthand
+   resets `background-image`, `-size` and `-position` to their initial values, and
+   a later `background: var(--accent)` is exactly how the photo ended up drawn at
+   natural size anchored to the top-left corner — a 256px face in a 34px box shows
+   you one cheek. */
+.avatar {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+/* Carrying a photo: no tint behind it, no initial showing through it. */
+.avatar.has-img {
+  background-color: transparent;
+  color: transparent;
+  border-color: var(--line-strong);
+}
+
+/* --- eyebrow: the Silkscreen micro-label ---
+   Section headings everywhere. Silkscreen has no lowercase worth
+   using, so it is always set in caps and always tracked. */
+.pl-eyebrow {
+  font-family: var(--font-label);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  white-space: nowrap;
+}
+/* The rule that runs out to the edge — this is how a group announces
+   where it ends, without a box around it. */
+.pl-eyebrow::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.pl-eyebrow.accent { color: var(--accent-text); }
+
+/* --- tag: the Silkscreen badge on a row --- */
+.pl-tag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-family: var(--font-label);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.pl-tag.on { border-color: var(--accent-line); background: var(--accent-dim); color: var(--accent-text); }
+.pl-tag.due { border-color: var(--warn-line); background: var(--warn-dim); color: var(--warn); }
+.pl-tag.bad { border-color: var(--error-line); background: var(--error-dim); color: var(--error); }
+
+/* --- the boot wink ---
+   One second, once, on first paint: the machine coming up. Plume asks
+   for a "happy Mac boot wink"; here it is a single scanline sweep over
+   the app shell, which is the same gesture without a mascot PlumiChat
+   does not have. Frozen entirely under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .pl-boot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      var(--accent-dim) 46%,
+      color-mix(in srgb, var(--accent) 22%, transparent) 50%,
+      var(--accent-dim) 54%,
+      transparent 100%
+    );
+    animation: pl-scan 620ms var(--ease-out) 1 both;
+  }
+  @keyframes pl-scan {
+    from { transform: translateY(-100%); opacity: 1; }
+    to   { transform: translateY(100%); opacity: 0; }
+  }
+}
+
+/* Global motion floor. Plume's loops are decorative; a person who has
+   asked the OS to stop animation gets a still product, not a slower one. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

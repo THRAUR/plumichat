@@ -1,0 +1,2380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#141210" />
+<title>PlumiChat · Settings</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg?v=20260904c" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=20260904c" />
+<link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png?v=20260904c" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260904c" />
+<!-- iOS/macOS snapshot the home-screen NAME from here (the manifest's short_name
+     is only read from 15.4 on), so it has to be stated as well as in the manifest. -->
+<meta name="apple-mobile-web-app-title" content="PlumiChat" />
+<link rel="manifest" href="/manifest.webmanifest?v=20260904c" />
+<script src="/theme.js?v=20260904b"></script>
+<!-- Shared tokens, buttons, sheet/overlay and toasts (see public/ui.css / ui.js).
+     Everything below this comment in <style> is settings-only. -->
+<link rel="stylesheet" href="/plume.css?v=20260904b" />
+<link rel="stylesheet" href="/ui.css?v=20260904b" />
+<script src="/ui.js?v=20260902"></script>
+<style>
+  html { color-scheme: dark; } html[data-theme="light"] { color-scheme: light; }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  html { height: 100%; }
+  body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; overscroll-behavior: none;
+    /* Settings wants roomier controls than Operations; the shared .btn reads
+       these instead of the page forking the whole button block. */
+    --btn-h: 40px; --btn-r: 11px; --btn-px: 16px; --btn-fs: 13.5px; --btn-fw: 600;
+  }
+  button { font-family: inherit; cursor: pointer; color: inherit; }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: var(--accent-dim); }
+
+  .app { display: flex; height: 100dvh; width: 100%; position: relative; }
+
+  /* ---------- Side nav (desktop) ---------- */
+  .snav {
+    flex: none; width: 256px;
+    border-right: 1px solid var(--line);
+    background: var(--panel-bg);
+    display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+  }
+  .snav-top { padding: 16px 14px 10px; }
+  .back-link {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--muted); font-weight: 500;
+    padding: 6px 8px; border-radius: var(--r-md); margin-left: -6px;
+    transition: color 0.14s ease, background 0.14s ease;
+  }
+  .back-link:hover { color: var(--text); background: var(--surface-2); }
+  .snav-title { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; margin: 12px 8px 2px; }
+  .snav-list { display: flex; flex-direction: column; gap: 2px; padding: 8px; overflow-y: auto; flex: 1; }
+  .snav-item {
+    display: flex; align-items: center; gap: 11px;
+    padding: 10px 11px; border: 0; background: transparent;
+    color: var(--muted); border-radius: var(--r-md); text-align: left;
+    font-size: 14px; font-weight: 500; width: 100%;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .snav-item svg { flex: none; }
+  .snav-item:hover { background: var(--surface-2); color: var(--text); }
+  .snav-item.active { background: var(--accent-dim); color: var(--accent-text); font-weight: 600; }
+  .snav-foot { border-top: 1px solid var(--line); padding: 10px; display: flex; align-items: center; gap: 8px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+
+  .user-chip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-md); }
+  .avatar {
+    flex: none; width: 34px; height: 34px; border-radius: var(--r-md);
+    /* background-COLOR: the shorthand would reset the photo's background-image,
+       -size, -position and -repeat. The framing lives in plume.css, once. */
+    background-color: var(--accent-dim); border: 1px solid var(--accent-line); color: var(--accent-text);
+    display: grid; place-items: center; font-size: 12.5px; font-weight: 700;
+  }
+  .avatar.has-img { background-color: transparent; color: transparent; border-color: var(--line-strong); }
+  .user-meta { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+  .user-name { font-size: 13.5px; font-weight: 600; }
+  .user-role { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .theme-toggle {
+    flex: none; width: 38px; height: 38px; border-radius: var(--r-md);
+    border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+    display: grid; place-items: center;
+    transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  }
+  .theme-toggle:hover { color: var(--text); background: var(--surface-2); border-color: var(--line-strong); }
+
+  /* ---------- Main ---------- */
+  .smain { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; height: 100%; }
+  .mobilebar {
+    display: none; flex: none; align-items: center; gap: 10px;
+    padding: 12px 14px; padding-top: calc(12px + env(safe-area-inset-top));
+    border-bottom: 1px solid var(--line);
+    background: var(--bar-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .mobilebar h1 { margin: 0; font-size: 17px; font-weight: 650; }
+  .icon-btn {
+    flex: none; width: 36px; height: 36px; border-radius: var(--r-md); border: 0;
+    background: transparent; color: var(--muted); display: grid; place-items: center;
+    transition: background 0.14s ease, color 0.14s ease;
+  }
+  .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+  .chips { display: none; gap: 7px; padding: 11px 14px 2px; overflow-x: auto; scrollbar-width: none; flex: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; padding: 7px 13px; border-radius: var(--r-win);
+    border: 1px solid var(--line); background: var(--surface);
+    color: var(--muted); font-size: 13px; font-weight: 500;
+  }
+  .chip.active { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+
+  .scontent {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 26px 24px calc(60px + env(safe-area-inset-bottom));
+  }
+  .scontent-inner { max-width: 720px; margin: 0 auto; }
+
+  section[data-sec] { display: none; }
+  section[data-sec].active { display: block; }
+
+  .sec-head { margin-bottom: 18px; }
+  .sec-head h2 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+  .sec-head p { margin: 5px 0 0; font-size: 13.5px; color: var(--muted); }
+
+  .block-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; margin: 24px 2px 9px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-win); padding: 4px 16px; }
+  .panel.pad { padding: 18px 16px; }
+
+  .row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 15px 0; border-top: 1px solid var(--line);
+  }
+  .row:first-child { border-top: 0; }
+  .row .rmain { flex: 1; min-width: 0; }
+  .row .rlabel { font-size: 14px; font-weight: 550; }
+  .row .rdesc { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .row .rctl { flex: none; }
+  /* The palette grid and sixteen swatches need the whole width, so these two
+     rows stack — label above, control below — instead of fighting the label for
+     room on one line. */
+  /* `display:flex` on .row beats the UA's `[hidden] { display:none }`, so a row
+     hidden in JS stays on screen. Same trap .drawer-nav[hidden] fixes in the
+     chat stylesheet. */
+  .row[hidden] { display: none; }
+  .row.row-wide { flex-direction: column; align-items: stretch; gap: 11px; }
+  .row.row-wide .rctl { width: 100%; }
+
+  .field { display: flex; flex-direction: column; gap: 7px; margin: 14px 0; }
+  .field label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  input.txt, select, textarea {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--line-strong);
+    border-radius: var(--r-md); color: var(--text); font-family: inherit; font-size: 14.5px;
+    padding: 11px 12px; outline: none; transition: border-color 0.14s ease;
+  }
+  .panel input.txt, .panel select, .panel textarea { background: var(--surface-2); }
+  select { -webkit-appearance: none; appearance: none; padding-right: 34px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238b929c' stroke-width='2.4' stroke-linecap='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; }
+  input.txt:focus, select:focus, textarea:focus { border-color: var(--accent-line); }
+  input.txt::placeholder, textarea::placeholder { color: var(--faint); }
+  /* Admin-only controls are hidden until the profile loads and confirms admin.
+     Fail-closed: before the profile resolves the body carries neither class, so
+     an admin/owner control is hidden rather than briefly flashed at a member. */
+  body:not(.is-admin) .admin-only { display: none !important; }
+  /* Owner-only (Engine): the update flow writes into the dev repo and spends the
+     owner's rate limit on a canary turn. An invited admin is a guest here. */
+  body:not(.is-owner) .owner-only { display: none !important; }
+  /* Power controls (server restart, PC restart/shutdown) — hidden unless granted. */
+  body:not(.is-power) .power-only { display: none !important; }
+  /* Power-off / restart countdown overlay (mirrors the main app). */
+  .power-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    display: grid; place-items: center; padding: 24px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  }
+  .power-overlay[hidden] { display: none; }
+  .power-card {
+    width: min(360px, 100%);
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    gap: 12px; padding: 26px 22px calc(22px + env(safe-area-inset-bottom));
+    border-radius: var(--r-win); border: 1px solid var(--error-line);
+    background: var(--surface); color: var(--text);
+    box-shadow: var(--shadow-win);
+  }
+  .power-ic {
+    width: 52px; height: 52px; border-radius: var(--r-md); display: grid; place-items: center;
+    color: var(--error); background: var(--error-dim); border: 1px solid var(--error-line);
+  }
+  .power-title { font-size: 18px; font-weight: 650; }
+  .power-msg { font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+  .power-msg #powerCount { font-weight: 700; color: var(--text); font-family: var(--mono); }
+  .power-cancel {
+    margin-top: 4px; width: 100%; padding: 12px 16px;
+    border-radius: var(--r-md); border: 1px solid var(--line-strong);
+    background: var(--surface-2); color: var(--text);
+    font-size: 14.5px; font-weight: 600; cursor: pointer;
+    transition: background 0.14s ease;
+  }
+  .power-cancel:hover { background: var(--surface-3); }
+
+  /* controls */
+  .switch { width: 44px; height: 26px; border-radius: var(--r-win); background: var(--surface-3); border: 1px solid var(--line-strong); position: relative; transition: background 0.16s ease; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--text); transition: transform 0.18s ease; }
+  .switch.on { background: var(--accent); border-color: transparent; }
+  .switch.on::after { transform: translateX(18px); background: var(--on-accent); }
+
+  .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 3px; gap: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--muted); padding: 7px 14px; border-radius: var(--r-md); font-size: 13px; font-weight: 550; transition: background 0.14s ease, color 0.14s ease; }
+  .seg button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+
+  .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+  .swatch { width: 30px; height: 30px; border-radius: var(--r-md); border: 2px solid transparent; position: relative; transition: transform 0.12s ease; }
+  .swatch:hover { transform: scale(1.08); }
+  /* SELECTED reads as selected. The old ring was `currentColor` — the swatch's
+     own colour — so it only ever looked like a slightly bigger swatch of the
+     same hue. It is now a tick in the ink that colour uses for its own labels,
+     plus a ring in --text, which contrasts against every swatch by definition. */
+  .swatch.active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+  .swatch .sw-tick { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; }
+  .swatch.active .sw-tick { display: flex; }
+
+  /* Palette cards: each previews itself in its OWN colours, because the name
+     "Gruvbox" means nothing until you see it. */
+  .palettes { display: grid; grid-template-columns: repeat(auto-fill, minmax(146px, 1fr)); gap: 8px; width: 100%; }
+  .pal-group {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 9px;
+    font-family: var(--font-label); font-size: 9px; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--faint); margin-top: 2px;
+  }
+  .pal-group::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .pal-group:first-child { margin-top: 0; }
+  .pal {
+    display: flex; flex-direction: column; gap: 7px; align-items: stretch;
+    padding: 8px; border-radius: var(--r-md);
+    border: 1px solid var(--line-strong); background: var(--surface);
+    text-align: left; transition: border-color 0.14s ease, box-shadow 0.14s ease;
+  }
+  .pal:hover { border-color: var(--accent-line); }
+  .pal.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+  .pal-chips { display: flex; gap: 0; height: 26px; border-radius: var(--r-sm); overflow: hidden; border: 1px solid rgba(128,128,128,0.25); }
+  .pal-chips i { flex: 1; }
+  .pal-chips i.wide { flex: 2.2; }
+  .pal-name { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text); min-width: 0; }
+  .pal-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pal-name .pal-tick { flex: none; color: var(--accent-text); opacity: 0; }
+  .pal.active .pal-name .pal-tick { opacity: 1; }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--r-win); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--muted); }
+  .badge.admin { color: var(--accent-text); border-color: var(--accent-line); background: var(--accent-dim); }
+  .badge.active { color: var(--green); border-color: var(--green-line); background: var(--green-dim); }
+  .badge.onboarding { color: var(--amber); border-color: var(--amber-line); background: var(--amber-dim); }
+  .badge.invited { color: var(--muted); }
+  .badge .bdot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  /* members
+     There is no usage column any more: tokens/cost/requests are hard-coded zeros
+     server-side (users.js membersView), so the bars only ever drew a confident
+     "0" that looked like a measurement. Status is the one real per-member fact. */
+  .summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px 15px; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 23px; font-weight: 700; letter-spacing: -0.01em; margin-top: 3px; }
+  .stat .d { font-size: 11px; color: var(--faint); margin-top: 2px; font-family: var(--mono); }
+
+  .member { display: flex; align-items: center; gap: 13px; width: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); text-align: left; margin-bottom: 9px; transition: border-color 0.14s ease, background 0.14s ease; }
+  .member:hover { border-color: var(--line-strong); background: var(--surface-2); }
+  .member .avatar { width: 40px; height: 40px; border-radius: var(--r-md); font-size: 13px; }
+  .member .m-id { min-width: 0; flex: 1; }
+  .member .m-name { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .member .m-mail { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .member .m-status { flex: none; display: flex; align-items: center; }
+  .member .m-go { flex: none; color: var(--faint); }
+
+  /* pending invites */
+  .invite { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-top: 1px solid var(--line); }
+  .invite:first-child { border-top: 0; }
+  .inv-main { flex: 1; min-width: 0; }
+  .inv-name { font-size: 13.5px; font-weight: 600; }
+  .inv-sub { font-size: 11.5px; color: var(--faint); font-family: var(--mono); margin-top: 2px; }
+  .inv-sub .soon { color: var(--amber); }
+
+  .passkey, .session { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-top: 1px solid var(--line); }
+  .passkey:first-child, .session:first-child { border-top: 0; }
+  .pk-ic { width: 34px; height: 34px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); flex: none; }
+  .pk-main { flex: 1; min-width: 0; }
+  .pk-name { font-size: 13.5px; font-weight: 600; }
+  .pk-sub { font-size: 11.5px; color: var(--faint); font-family: var(--mono); margin-top: 2px; }
+  .empty-line { padding: 16px; text-align: center; color: var(--faint); font-size: 13px; }
+
+  .hint-note { font-size: 12px; color: var(--faint); margin: 10px 2px 0; line-height: 1.5; }
+  .hint-note code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); padding: 1px 5px; border-radius: var(--r-sm); color: var(--muted); }
+
+  /* A plain-language warning the reader cannot skim past. Used for the two places
+     the UI must not be coy: the Basic-auth sign-out truth, and what an engine
+     update does and does NOT do. */
+  .warn-note {
+    margin: 0 0 14px; padding: 12px 13px; border-radius: var(--r-md);
+    background: var(--amber-dim); border: 1px solid var(--amber-line);
+    color: var(--text); font-size: 12.5px; line-height: 1.55;
+  }
+  .warn-note b { color: var(--amber); }
+  .warn-note code { font-family: var(--mono); font-size: 11.5px; word-break: break-all; }
+
+  /* ---------- Engine (owner only) ---------- */
+  .eng-ver { font-family: var(--mono); font-size: 13.5px; text-align: right; }
+  .eng-sub { font-size: 11.5px; color: var(--faint); font-family: var(--mono); margin-top: 2px; text-align: right; }
+  .eng-sub.behind { color: var(--amber); }
+  .eng-sub.ok { color: var(--green); }
+  /* A version pair in a monospace column is wide; side by side with a label it
+     squeezes both into one-word-per-line on a phone. Stack them there instead. */
+  @media (max-width: 620px) {
+    #engPanel .row { flex-direction: column; align-items: stretch; gap: 4px; }
+    #engPanel .eng-ver, #engPanel .eng-sub { text-align: left; }
+    #engPanel .eng-ver { font-size: 15px; }
+  }
+  .eng-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .eng-news { margin-top: 12px; }
+  .eng-rel { padding: 12px 0; border-top: 1px solid var(--line); }
+  .eng-rel:first-child { border-top: 0; }
+  .eng-rel h4 { margin: 0 0 6px; font-size: 13px; font-weight: 650; font-family: var(--mono); }
+  .eng-rel ul { margin: 0; padding-left: 17px; display: flex; flex-direction: column; gap: 3px; }
+  .eng-rel li { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+  .eng-verdict { margin-top: 13px; font-size: 12.5px; line-height: 1.55; }
+  .eng-verdict .v-head { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 650; }
+  .eng-verdict.pass .v-head { color: var(--green); }
+  .eng-verdict.fail .v-head { color: var(--error); }
+  .eng-verdict.busy .v-head { color: var(--muted); }
+  .eng-verdict ul { margin: 8px 0 0; padding-left: 17px; display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
+  .eng-verdict code { font-family: var(--mono); font-size: 11.5px; }
+  .eng-log-row { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12px; }
+  .eng-log-row:first-child { border-top: 0; }
+  .eng-log-row .lt { flex: none; font-family: var(--mono); color: var(--faint); }
+  .eng-log-row .lm { flex: 1; min-width: 0; color: var(--muted); }
+  .eng-log-row.bad .lm { color: var(--error); }
+  .eng-check { display: flex; align-items: center; gap: 9px; margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+  .eng-check input { width: 17px; height: 17px; accent-color: var(--accent); flex: none; }
+
+  /* sheet — the shared .ui-sheet is a full-width bottom sheet; Settings caps its
+     width and, on a desktop screen, turns it into a centered modal. */
+  .ui-sheet { margin: 0 auto; max-width: 460px; max-height: 90dvh; border: 1px solid var(--line-strong); border-bottom: 0; padding: 8px 18px calc(20px + env(safe-area-inset-bottom)); }
+  @media (min-width: 760px) {
+    .ui-sheet { bottom: auto; top: 50%; left: 50%; right: auto; transform: translate(-50%, -44%) scale(0.98); opacity: 0; border: 1px solid var(--line-strong); border-radius: var(--r-win); width: 440px; }
+    .ui-sheet.open { transform: translate(-50%, -50%); opacity: 1; }
+    .ui-grip { display: none; }
+  }
+  .ui-sheet h3 { margin: 4px 0 3px; font-size: 17px; font-weight: 650; }
+  .ui-sheet .sub { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+  .sheet-actions { display: flex; gap: 9px; margin-top: 8px; }
+  .sheet-actions .btn { flex: 1; height: 44px; }
+
+
+  /* ══════════════════════════════════════════════════════════════════════
+     PLUME — Settings, in the Plume design system.
+     Tokens and the button/sheet/toast primitives come from plume.css and
+     ui.css; this block is what is specific to this page.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  /* Pixelify names the page and each section; Silkscreen labels the groups. */
+  .snav-title, .mobilebar h1, .sec-head h2 {
+    font-family: var(--font-display); font-weight: 700; letter-spacing: 0.01em;
+  }
+  .snav-title { font-size: 19px; }
+  .mobilebar h1 { font-size: 16px; }
+  .sec-head h2 { font-size: 21px; }
+  .block-title, .pl-label {
+    font-family: var(--font-label); font-size: 10px; font-weight: 400;
+    letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint);
+    display: flex; align-items: center; gap: 9px; margin: 26px 2px 9px;
+  }
+  .block-title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* SECTION TABS — the fault the redesign was called in for.
+     These were one horizontal scroller with the scrollbar hidden, so on a phone
+     the last two sections were simply invisible: nothing on screen said the row
+     continued past the right edge. Six labels fit a phone comfortably in two
+     rows of three, so they now WRAP — every section this account can open is
+     on screen at once, and nothing has to be discovered by swiping. */
+  .chips {
+    display: none;
+    grid-template-columns: repeat(auto-fit, minmax(94px, 1fr));
+    overflow: visible;
+    gap: 6px;
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .chip {
+    min-width: 0;
+    justify-content: center;
+    text-align: center;
+    padding: 9px 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: var(--r-sm);
+    border-color: var(--line-strong);
+    background: var(--surface);
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+  /* Selected, not accented. Terracotta is one accent per region, and on Members
+     the active tab sat directly beside the Invite button — two terracotta fills
+     competing to be the thing you press. A selected item inverts instead, which
+     is both the older and the more literal Macintosh answer, and it leaves the
+     accent to mean "this is the action". */
+  .chip.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+    font-weight: 700;
+  }
+
+  .snav { border-right: 1px solid var(--line-strong); }
+  .snav-item { border-radius: var(--r-sm); }
+  .snav-item.active { background: var(--accent-dim); color: var(--accent-text); }
+  .back-link { border-radius: var(--r-sm); font-family: var(--font-display); letter-spacing: 0.08em; }
+  .snav-foot, .mobilebar { border-color: var(--line-strong); }
+
+  /* Cards are sharp; only genuine WINDOWS get the 9px top. */
+  .panel, .stat, .member, .seg { border-radius: var(--r-md); border-color: var(--line-strong); }
+  .panel { box-shadow: var(--shadow-sm); }
+  .stat .v { font-family: var(--mono); font-weight: 700; letter-spacing: 0; }
+  .stat .k { font-family: var(--font-label); font-size: 9px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint); }
+  .stat .d { font-size: 10px; }
+
+  .field label { font-family: var(--font-label); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint); }
+  input.txt, select, textarea { border-radius: var(--r-sm); background: var(--surface-2); }
+  input.txt:focus, select:focus, textarea:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim);
+  }
+
+  /* A Plume switch is a square knob in a square track — no lozenge. */
+  .switch { border-radius: var(--r-sm); }
+  .switch::after { border-radius: 1px; }
+
+  .seg button { border-radius: var(--r-sm); min-height: 34px; }
+  .chip { min-height: 38px; display: inline-flex; align-items: center; }
+  /* A checkbox row is one target: the label wraps the input, so give the whole
+     row the height rather than leaving a 17px box to hit. */
+  .eng-check { min-height: 36px; display: flex; align-items: center; gap: 9px; }
+  .eng-check input { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
+  .seg button.active { box-shadow: none; background: var(--surface-3); }
+
+  .swatch { border-radius: var(--r-sm); border-width: 1px; }
+  .swatch:hover { transform: none; }
+  /* A colour chip is still a button. 30px was under the floor the rest of the
+     product keeps on a phone; seventeen of them simply wrap to another row. */
+  @media (pointer: coarse) { .swatch { width: 40px; height: 40px; } }
+  .swatch.active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px currentColor; }
+
+  .badge {
+    border-radius: var(--r-sm);
+    font-family: var(--font-label); font-size: 9px; font-weight: 400;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .badge .bdot { border-radius: 0; width: 4px; height: 4px; }
+
+  .avatar {
+    /* background-COLOR, never the shorthand — see the note in plume.css. */
+    background-color: var(--accent); border-color: transparent; color: var(--on-accent);
+    font-family: var(--font-label); font-size: 13px; letter-spacing: 0;
+  }
+
+  @media (max-width: 899px) {
+    /* A tidy grid rather than a flex row: six labels land as an even 3x2 that
+       fills the width, instead of four-then-two-stretched-wide. */
+    .chips { display: grid; }
+  }
+
+  /* A setting row puts its label beside its control. On a phone the control —
+     a three-way segment, six swatches — takes most of the width, and the label
+     was left wrapping to four lines beside it ("Light, dark, or / follow your /
+     system."). Below 560px the row stacks: the label reads on one line, the
+     control gets the full width under it. */
+  @media (max-width: 560px) {
+    .row { flex-direction: column; align-items: stretch; gap: 10px; padding: 14px 0; }
+    .row .rctl { align-self: flex-start; width: 100%; }
+    .row .rctl .seg { width: 100%; }
+    .row .rctl .seg button { flex: 1; }
+    /* A switch is small and reads better where it always was: on the right. */
+    .row:has(.switch) { flex-direction: row; align-items: center; }
+    .row:has(.switch) .rctl { width: auto; align-self: center; }
+  }
+
+
+  /* ---------- photo cropper ----------
+     Picking a photo used to hand it straight to a blind centre-crop: whatever
+     happened to be in the middle of the frame became your avatar, and on a
+     landscape photo that is usually a shoulder. This is the same crop, but you
+     choose it.
+
+     The preview underneath is not a mock-up of the result — it IS the result.
+     The three squares are real `.avatar` elements at the three sizes the product
+     actually uses, carrying the exact JPEG data URL that the Use-photo button
+     will upload. Nothing about them can drift from what you get. */
+  /* One sheet width for the page; only the stage height is the cropper's own. */
+  .crop-sheet { --crop-stage: 264px; }
+
+  .crop-stage {
+    position: relative;
+    width: 100%;
+    height: var(--crop-stage);
+    margin: 2px 0 14px;
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    background: var(--sunk);
+    cursor: grab;
+    /* The browser must not claim the drag as a page scroll or a pinch-zoom. */
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .crop-stage:active { cursor: grabbing; }
+  .crop-stage img {
+    position: absolute; top: 0; left: 0;
+    max-width: none;                 /* the image is deliberately larger than the box */
+    pointer-events: none;
+    -webkit-user-drag: none;
+  }
+  /* The porthole. Its 9999px spread shadow is what dims everything outside it,
+     so the part of the photo you are cutting away stays visible while you aim. */
+  .crop-hole {
+    position: absolute;
+    pointer-events: none;
+    border: 1px solid var(--accent);
+    border-radius: var(--r-sm);
+    /* Ink, not the page colour, and the same in both modes: on paper a wash
+       toward white read as over-exposed rather than as "this gets cut". */
+    box-shadow: 0 0 0 9999px rgba(20, 18, 16, 0.55);
+  }
+  /* Corner ticks — the crop marks on a contact sheet. */
+  .crop-hole::before, .crop-hole::after {
+    content: ""; position: absolute; width: 13px; height: 13px;
+    border: 2px solid var(--accent);
+  }
+  .crop-hole::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .crop-hole::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  .crop-stage:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; }
+
+  .crop-zoom { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .crop-step {
+    flex: none; width: 38px; height: 38px;
+    display: grid; place-items: center;
+    border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+    background: var(--surface); color: var(--muted);
+    box-shadow: var(--shadow-sm);
+    transition: background var(--dur-fast) linear, color var(--dur-fast) linear,
+                box-shadow var(--dur-fast) linear, transform var(--dur-fast) linear;
+  }
+  .crop-step:hover { color: var(--text); border-color: var(--accent); }
+  .crop-step:active { transform: translate(2px, 2px); box-shadow: none; }
+  .crop-step:disabled { opacity: 0.45; box-shadow: none; }
+  /* A Plume slider: a hairline rail with a square terracotta handle. */
+  #cropZoom {
+    flex: 1; min-width: 0; height: 38px;
+    -webkit-appearance: none; appearance: none;
+    background: transparent; cursor: pointer;
+  }
+  #cropZoom::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 0;
+    background: var(--surface-3); border: 1px solid var(--line-strong);
+  }
+  #cropZoom::-moz-range-track {
+    height: 4px; border-radius: 0;
+    background: var(--surface-3); border: 1px solid var(--line-strong);
+  }
+  #cropZoom::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 22px; margin-top: -10px;
+    border: 0; border-radius: 1px;
+    background: var(--accent);
+    box-shadow: var(--shadow-sm);
+  }
+  #cropZoom::-moz-range-thumb {
+    width: 16px; height: 22px;
+    border: 0; border-radius: 1px;
+    background: var(--accent);
+    box-shadow: var(--shadow-sm);
+  }
+  #cropZoom:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 4px; }
+
+  .crop-preview { margin-top: 16px; }
+  .crop-shots {
+    display: flex; align-items: flex-end; gap: 18px;
+    margin-top: 10px; padding: 14px 16px;
+    border: 1px solid var(--line-strong); border-radius: var(--r-md);
+    background: var(--surface-2);
+  }
+  .crop-shot { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 0; }
+  .crop-shot figcaption {
+    font-family: var(--font-label); font-size: 8.5px;
+    letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint);
+    white-space: nowrap;
+  }
+  /* Real avatars at the three real sizes — see the note at the top of this block. */
+  .crop-shot .avatar { border-radius: var(--r-sm); }
+  .crop-shot .avatar.s62 { width: 62px; height: 62px; font-size: 20px; }
+  .crop-shot .avatar.s40 { width: 40px; height: 40px; font-size: 13px; }
+  .crop-shot .avatar.s32 { width: 32px; height: 32px; font-size: 11px; }
+  .crop-hint { margin: 9px 2px 0; font-size: 11.5px; line-height: 1.45; color: var(--faint); }
+
+  @media (max-width: 400px) {
+    .crop-sheet { --crop-stage: 224px; }
+    .crop-shots { gap: 14px; padding: 12px; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 899px) {
+    .snav { display: none; }
+    .mobilebar { display: flex; }
+    .chips { display: grid; }
+    .scontent { padding: 18px 16px calc(60px + env(safe-area-inset-bottom)); }
+  }
+  @media (min-width: 760px) { .summary { grid-template-columns: repeat(4, 1fr); } }
+</style>
+</head>
+<body>
+  <div class="app">
+    <!-- Desktop side nav -->
+    <aside class="snav">
+      <div class="snav-top">
+        <a class="back-link" href="/"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>PlumiChat</a>
+        <div class="snav-title">Settings</div>
+      </div>
+      <nav class="snav-list" id="navList"></nav>
+      <div class="snav-foot">
+        <div class="user-chip">
+          <span class="avatar" id="navAvatar">A</span>
+          <span class="user-meta"><span class="user-name" id="navName">You</span><span class="user-role" id="navRole">Admin · Workspace owner</span></span>
+        </div>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle theme"></button>
+      </div>
+    </aside>
+
+    <main class="smain">
+      <header class="mobilebar">
+        <a class="icon-btn" href="/" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></a>
+        <h1>Settings</h1>
+        <button class="icon-btn" id="themeToggleM" type="button" aria-label="Toggle theme" style="margin-left:auto"></button>
+      </header>
+      <div class="chips" id="chips"></div>
+
+      <div class="scontent">
+        <div class="scontent-inner">
+
+          <!-- PROFILE -->
+          <section data-sec="profile">
+            <div class="sec-head"><h2>Profile</h2><p>How you appear across the workspace.</p></div>
+            <div class="panel pad">
+              <div style="display:flex;align-items:center;gap:16px;margin-bottom:6px">
+                <span class="avatar" id="pfAvatar" style="width:62px;height:62px;border-radius: var(--r-win);font-size:20px">A</span>
+                <div>
+                  <input type="file" id="avatarInput" accept="image/png,image/jpeg,image/webp" hidden />
+                  <button class="btn sm" type="button" id="changeAvatar">Change photo</button>
+                  <button class="btn sm" type="button" id="removeAvatar" hidden style="margin-left:6px">Remove</button>
+                  <div class="hint-note" style="margin-top:7px">PNG, JPG or WebP — squared automatically.</div>
+                </div>
+              </div>
+              <div class="field"><label for="pfFirst">First name</label><input class="txt" id="pfFirst" autocomplete="given-name" /></div>
+              <div class="field"><label for="pfLast">Last name</label><input class="txt" id="pfLast" autocomplete="family-name" /></div>
+              <div class="field"><label for="pfEmail">Email</label><input class="txt" id="pfEmail" type="email" autocapitalize="off" autocomplete="email" /></div>
+              <div class="field"><label for="pfRole">Role</label><input class="txt" id="pfRole" disabled style="opacity:.6" /></div>
+              <button class="btn btn-primary" type="button" id="saveProfile" style="margin-top:6px">Save changes</button>
+              <div class="hint-note" style="margin-top:8px">Change your 6-digit passcode under <b>Security</b>.</div>
+            </div>
+          </section>
+
+          <!-- APPEARANCE -->
+          <section data-sec="appearance">
+            <div class="sec-head"><h2>Appearance</h2><p>Make PlumiChat feel like yours.</p></div>
+            <div class="panel">
+              <div class="row"><div class="rmain"><div class="rlabel">Theme</div><div class="rdesc">Light, dark, or follow your system.</div></div><div class="rctl"><div class="seg" id="themeSeg"><button data-theme-opt="light">Light</button><button data-theme-opt="dark">Dark</button><button data-theme-opt="system">System</button></div></div></div>
+              <div class="row row-wide"><div class="rmain"><div class="rlabel">Palette</div><div class="rdesc">Light and Dark above pick the mode; this picks the colours each one uses.</div></div><div class="rctl"><div class="palettes" id="palettes"></div></div></div>
+              <div class="row row-wide"><div class="rmain"><div class="rlabel">Accent color</div><div class="rdesc">Used for highlights and primary actions.</div></div><div class="rctl"><div class="swatches" id="swatches"></div></div></div>
+              <div class="row"><div class="rmain"><div class="rlabel">Reduce motion</div><div class="rdesc">Minimize animations and transitions.</div></div><div class="rctl"><div class="switch" data-toggle="motion"></div></div></div>
+              <div class="row"><div class="rmain"><div class="rlabel">Compact density</div><div class="rdesc">Tighter spacing in the message list.</div></div><div class="rctl"><div class="switch" data-toggle="density"></div></div></div>
+            </div>
+          </section>
+
+          <!-- SECURITY -->
+          <section data-sec="chat">
+            <div class="sec-head"><h2>Chat</h2><p>What a new turn starts with. Saved to your account, so it holds on every device and in every split-view pane.</p></div>
+            <div class="panel">
+              <div class="row"><div class="rmain"><div class="rlabel">Model</div><div class="rdesc">The model a new turn uses.</div></div><div class="rctl" style="width:230px"><select id="defModel"><option value="">Loading…</option></select></div></div>
+              <div class="row" id="defEffortRow"><div class="rmain"><div class="rlabel">Effort</div><div class="rdesc">How hard it thinks before answering. Only shown for models that support it.</div></div><div class="rctl"><div class="seg" id="defEffort"></div></div></div>
+              <div class="row" id="defFastRow"><div class="rmain"><div class="rlabel">Fast mode</div><div class="rdesc">Faster output on Opus. Same model, not a smaller one.</div></div><div class="rctl"><button class="switch" id="defFast" type="button" role="switch" aria-checked="false"></button></div></div>
+              <div class="row admin-only"><div class="rmain"><div class="rlabel">Approval mode</div><div class="rdesc">When PlumiChat may act without asking.</div></div><div class="rctl" style="width:230px"><select id="defPerm">
+                <option value="default">Ask first</option>
+                <option value="acceptEdits">Auto-accept edits</option>
+                <option value="bypassPermissions">Skip all approvals</option>
+              </select></div></div>
+              <div class="row"><div class="rmain"><div class="rdesc" id="defNote">Members always run in “Ask first” — the approval check is what keeps a member inside their own home, so the server does not accept a relaxed mode for one.</div></div></div>
+            </div>
+          </section>
+          <section data-sec="security">
+            <div class="sec-head"><h2>Security</h2><p>Your passcode, passkeys, and session.</p></div>
+            <div class="block-title">Change passcode</div>
+            <div class="panel pad">
+              <div class="field"><label for="pcCur">Current passcode</label><input class="txt" id="pcCur" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="off" /></div>
+              <div class="field"><label for="pcNew">New passcode</label><input class="txt" id="pcNew" type="password" inputmode="numeric" maxlength="6" placeholder="6 digits" autocomplete="off" /></div>
+              <div class="field"><label for="pcConf">Confirm new passcode</label><input class="txt" id="pcConf" type="password" inputmode="numeric" maxlength="6" placeholder="Repeat 6 digits" autocomplete="off" /></div>
+              <button class="btn btn-primary" type="button" id="updatePin">Update passcode</button>
+              <div class="hint-note" style="margin-top:8px">This is the 6-digit code you use to log in.</div>
+            </div>
+
+            <div class="block-title admin-only">Workspace access password</div>
+            <div class="panel pad admin-only">
+              <div class="hint-note" style="margin-bottom:10px">The fallback password for the box itself (HTTP Basic). It's the lifeline that can always get in — keep it safe.</div>
+              <div class="field"><label for="pwCur">Current password</label><input class="txt" id="pwCur" type="password" placeholder="••••••••" /></div>
+              <div class="field"><label for="pwNew">New password</label><input class="txt" id="pwNew" type="password" placeholder="At least 8 characters" /></div>
+              <div class="field"><label for="pwConf">Confirm new password</label><input class="txt" id="pwConf" type="password" placeholder="Repeat new password" /></div>
+              <button class="btn btn-primary" type="button" id="updatePw">Update password</button>
+            </div>
+
+            <div class="block-title">Passkeys &amp; biometrics</div>
+            <div class="panel pad">
+              <div id="passkeyList"></div>
+              <button class="btn full" type="button" id="addPasskey" style="margin-top:12px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add a passkey (Face ID / Touch ID)</button>
+              <div class="hint-note">Passkeys let you unlock with Face ID / Touch ID / Windows Hello. They need a secure context, so they work over <code>https://</code> or <code>localhost</code> &mdash; not over plain HTTP to an IP address.</div>
+            </div>
+
+            <div class="block-title">Session</div>
+            <div class="panel pad">
+              <div class="hint-note">You stay signed in on this device. You'll only be asked for your passcode again after about 30 days without opening PlumiChat — or if you sign out.</div>
+              <div class="warn-note" id="basicSignOutNote" hidden></div>
+              <button class="btn full" type="button" id="signOutBtn" style="margin-top:12px">Sign out of this device</button>
+            </div>
+
+            <div class="block-title power-only">System</div>
+            <div class="panel pad power-only">
+              <div class="hint-note" style="margin-bottom:10px">Restart the PlumiChat server to apply updates after an upgrade or fix. It's back in a few seconds — your conversations and projects are untouched.</div>
+              <button class="btn full" type="button" id="restartBtn">Restart server</button>
+              <div class="hint-note" style="margin:16px 0 10px">Power the Windows PC itself. A <b>restart</b> brings it back on its own — leave the smart plug on. A <b>shut down</b> powers it right off, so afterwards you can safely switch the smart plug off too.</div>
+              <button class="btn full" type="button" id="rebootPcBtn" style="margin-bottom:10px">Restart computer</button>
+              <button class="btn full btn-danger" type="button" id="shutdownPcBtn">Shut down computer</button>
+            </div>
+          </section>
+
+          <!-- ENGINE (owner only) — see docs/ENGINE-UPDATES.md -->
+          <section data-sec="engine" class="owner-only">
+            <div class="sec-head">
+              <h2>Engine</h2>
+              <p>The Claude engine PlumiChat runs on. There are two, they are separate installs, and updating one does nothing to the other.</p>
+            </div>
+            <div class="panel" id="engPanel"><div class="empty-line">Checking…</div></div>
+            <div class="hint-note" id="engMeta"></div>
+            <div class="eng-actions" id="engTools" hidden>
+              <button class="btn sm" type="button" id="engCheck">Check now</button>
+              <button class="btn sm" type="button" id="engNewsBtn">What's new</button>
+              <button class="btn sm" type="button" id="engLogBtn">Update history</button>
+            </div>
+            <div id="engNews" class="eng-news" hidden></div>
+            <div id="engLogBox" class="eng-news" hidden></div>
+
+            <div class="block-title" id="engUpdTitle" hidden>Update the engine</div>
+            <div class="panel pad" id="engUpd" hidden>
+              <div class="warn-note">
+                <b>This never ships anything and never restarts anything.</b>
+                A successful update writes exactly two files — <code>package.json</code> and
+                <code>package-lock.json</code> — into the <b>dev</b> repo at
+                <code id="engDevRepo">…</code>. The running server keeps the engine it
+                already loaded. To actually activate a bump you still do the human ship flow
+                yourself: <b>commit → push → pull on the live clone → restart the server</b>.
+                (A terminal-CLI update is the exception: it installs in place, and the next
+                terminal you open picks it up.)
+              </div>
+              <div class="field">
+                <label for="engTarget">What to update</label>
+                <select id="engTarget">
+                  <option value="sdk">Chat engine — Agent SDK (every chat turn)</option>
+                  <option value="cli">Terminal CLI — the owner terminal &amp; /design-sync</option>
+                  <option value="both">Both</option>
+                </select>
+              </div>
+              <button class="btn full" type="button" id="engDry">Step 1 — dry run (installs nothing here)</button>
+              <div class="hint-note">The dry run stages the install in a scratch folder, runs a real Haiku turn on the staged engine, and diffs the options PlumiChat passes. Nothing in this repo or the live clone is touched.</div>
+              <div class="eng-verdict" id="engVerdict" hidden></div>
+              <label class="eng-check" id="engPruneWrap" hidden><input type="checkbox" id="engPrune" /><span id="engPruneLabel">Also delete old CLI versions</span></label>
+              <button class="btn btn-primary full" type="button" id="engApply" style="margin-top:12px" hidden>Step 2 — write the version bump into the dev repo</button>
+            </div>
+          </section>
+
+          <!-- MODELS (admin only — every control here is a workspace policy) -->
+          <section data-sec="models" class="admin-only">
+            <div class="sec-head"><h2>Models</h2><p>The Claude model new chats use. The list updates automatically as new models reach your account.</p></div>
+            <div class="panel">
+              <div class="row"><div class="rmain"><div class="rlabel">Default model</div><div class="rdesc">Used for new conversations.</div></div><div class="rctl" style="width:210px"><select id="defaultModel"></select></div></div>
+              <div class="row"><div class="rmain"><div class="rlabel">Allow members to switch</div><div class="rdesc">Let members pick any connected model.</div></div><div class="rctl"><div class="switch on" data-toggle="switchModels"></div></div></div>
+            </div>
+            <div class="block-title">Available models</div>
+            <div class="panel pad">
+              <div class="hint-note" style="margin-top:0" id="modelsNote">Loading available models…</div>
+            </div>
+            <div class="block-title">Monthly spend cap — not enforced yet</div>
+            <div class="panel">
+              <div class="row"><div class="rmain"><div class="rlabel">Workspace budget</div><div class="rdesc" id="spendDesc">Usage this month, as the SDK's <b>estimate of API-equivalent cost</b> for the tokens used — not a bill, and nothing is charged here.</div></div><div class="rctl" style="display:flex;align-items:center;gap:8px"><span style="color:var(--muted)">$</span><input class="txt" id="spendCap" value="500" style="width:96px;text-align:right" /></div></div><div class="row"><div class="rmain"><div class="rlabel">Stop turns at the budget</div><div class="rdesc">Off by default, and deliberately: the figure above was a note to yourself for months, under a row that said nothing checked it. Turn this on and PlumiChat refuses to start a turn — yours or an Operations task — once the month passes it. Settings keeps working, so you can always turn it back off.</div></div><div class="rctl"><div class="switch" id="budgetEnforced" role="switch" tabindex="0" aria-checked="false"></div></div></div>
+            </div>
+          </section>
+
+          <!-- MEMBERS -->
+          <section data-sec="members">
+            <div class="sec-head" style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px">
+              <div><h2>Members</h2><p>Who has an account on this box.</p></div>
+              <button class="btn btn-primary admin-only" type="button" id="inviteBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Invite</button>
+            </div>
+            <div class="summary" id="summary"></div>
+            <div class="block-title">People <span style="text-transform:none;letter-spacing:0;color:var(--faint);font-weight:500">· tap a member for details</span></div>
+            <div id="memberList"></div>
+
+            <div class="block-title admin-only">Pending invites</div>
+            <div class="panel pad admin-only">
+              <div id="inviteList"><div class="empty-line">Loading…</div></div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </main>
+
+    <!-- Sheets -->
+    <div class="ui-overlay" id="overlay"></div>
+
+    <div class="ui-sheet" id="inviteSheet" role="dialog" aria-modal="true">
+      <div class="ui-grip"></div>
+      <h3>Invite someone</h3>
+      <p class="sub">Generate a single-use link, then share it with anyone on your tailnet. They register their own name, email and passcode.</p>
+      <div id="inviteForm">
+        <!-- The values are the server's internal role ids, lowercase. Sending the
+             display label used to silently downgrade every Admin invite. -->
+        <div class="field"><label for="invRole">Role</label><select id="invRole"><option value="member">Member — gets their own private folder</option><option value="admin">Admin — full workspace access</option></select></div>
+        <div class="sheet-actions"><button class="btn btn-ghost" type="button" data-close>Cancel</button><button class="btn btn-primary" type="button" id="makeInvite">Create invite link</button></div>
+      </div>
+      <div id="inviteResult" hidden>
+        <div class="field"><label for="invLink">Single-use invite link</label><input class="txt" id="invLink" readonly onclick="this.select()" /></div>
+        <div class="sheet-actions"><button class="btn btn-ghost" type="button" data-close>Done</button><button class="btn btn-primary" type="button" id="copyInvite">Copy link</button></div>
+        <div class="hint-note">Works once, then expires. Anyone who opens it on your tailnet can create one account.</div>
+      </div>
+    </div>
+
+    <div class="ui-sheet" id="memberSheet" role="dialog" aria-modal="true">
+      <div class="ui-grip"></div>
+      <div id="memberSheetBody"></div>
+    </div>
+
+
+    <!-- Photo cropper. Opens after a file is chosen; nothing is uploaded until
+         "Use photo". The three squares under the stage are REAL .avatar elements
+         at the sizes the product uses, carrying the exact data URL that will be
+         sent — so the confirmation, Settings and the side menu cannot disagree. -->
+    <div class="ui-sheet crop-sheet" id="cropSheet" role="dialog" aria-modal="true" aria-labelledby="cropTitle">
+      <div class="ui-grip"></div>
+      <h3 id="cropTitle">Position your photo</h3>
+      <p class="sub">Drag to move it, pinch or use the slider to zoom. The bright square is what people will see.</p>
+
+      <div class="crop-stage" id="cropStage" tabindex="0" role="application"
+           aria-label="Drag to move the photo; arrow keys nudge it, plus and minus zoom">
+        <img id="cropImg" alt="" draggable="false" />
+        <div class="crop-hole" id="cropHole" aria-hidden="true"></div>
+      </div>
+
+      <div class="crop-zoom">
+        <button class="crop-step" type="button" id="cropOut" aria-label="Zoom out">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+        <input type="range" id="cropZoom" min="100" max="400" step="1" value="100" aria-label="Zoom" />
+        <button class="crop-step" type="button" id="cropIn" aria-label="Zoom in">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line><line x1="12" y1="5" x2="12" y2="19"></line></svg>
+        </button>
+      </div>
+
+      <div class="crop-preview">
+        <div class="block-title" style="margin:0">Exactly what you will see</div>
+        <div class="crop-shots">
+          <figure class="crop-shot"><span class="avatar s62" id="cropPvA"></span><figcaption>Profile</figcaption></figure>
+          <figure class="crop-shot"><span class="avatar s40" id="cropPvB"></span><figcaption>Members</figcaption></figure>
+          <figure class="crop-shot"><span class="avatar s32" id="cropPvC"></span><figcaption>Side menu</figcaption></figure>
+        </div>
+        <p class="crop-hint" id="cropHint">Saved as a 256px square.</p>
+      </div>
+
+      <div class="sheet-actions">
+        <button class="btn btn-ghost" type="button" id="cropCancel">Cancel</button>
+        <button class="btn btn-primary" type="button" id="cropSave">Use photo</button>
+      </div>
+    </div>
+
+    <div class="ui-toasts" id="toasts"></div>
+  </div>
+
+  <!-- Power-off / restart countdown (Security → System) -->
+  <div class="power-overlay" id="powerOverlay" hidden>
+    <div class="power-card" role="alertdialog" aria-modal="true" aria-labelledby="powerTitle">
+      <span class="power-ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg></span>
+      <div class="power-title" id="powerTitle">Working…</div>
+      <div class="power-msg" id="powerMsg"></div>
+      <button class="power-cancel" id="powerCancel" type="button">Cancel</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Shared helpers (public/ui.js): one escaping toast, one JSON fetch that
+  // redirects on 401 and throws the server's own message, one sheet driver.
+  var UI = window.PlumiUI;
+  var sapi = UI.api;
+  var esc = UI.esc;
+  var ic = UI.ic;
+  var toast = UI.toast;
+
+  /* ---------- nav ----------
+     `gate` marks a section that only exists for some accounts. The class is put
+     on the nav button AND the chip, so the CSS in the head hides them until the
+     profile confirms the role — and `go()` refuses to open a gated section. */
+  var SECTIONS = [
+    { id: "profile", label: "Profile", icon: '<circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path>' },
+    { id: "appearance", label: "Appearance", icon: '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"></path>' },
+    { id: "chat", label: "Chat", icon: '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"></path>' },
+    { id: "security", label: "Security", icon: '<rect x="4" y="11" width="16" height="10" rx="2.4"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>' },
+    { id: "engine", label: "Engine", gate: "owner-only", icon: '<circle cx="12" cy="12" r="3.2"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path>' },
+    { id: "models", label: "Models", gate: "admin-only", icon: '<rect x="3" y="3" width="7" height="7" rx="1.6"></rect><rect x="14" y="3" width="7" height="7" rx="1.6"></rect><rect x="3" y="14" width="7" height="7" rx="1.6"></rect><rect x="14" y="14" width="7" height="7" rx="1.6"></rect>' },
+    { id: "members", label: "Members", icon: '<circle cx="9" cy="8" r="3.2"></circle><path d="M3.5 20a5.5 5.5 0 0 1 11 0"></path><path d="M16 5.5a3.2 3.2 0 0 1 0 6M17.5 20a5.5 5.5 0 0 0-2.4-4.5"></path>' }
+  ];
+  var navList = document.getElementById("navList");
+  var chips = document.getElementById("chips");
+  var sections = {};
+  document.querySelectorAll("section[data-sec]").forEach(function (s) { sections[s.getAttribute("data-sec")] = s; });
+  var active = "profile";
+
+  SECTIONS.forEach(function (s) {
+    var b = document.createElement("button");
+    b.className = "snav-item" + (s.gate ? " " + s.gate : "");
+    b.setAttribute("data-go", s.id);
+    b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + s.icon + '</svg><span>' + esc(s.label) + '</span>';
+    b.addEventListener("click", function () { go(s.id); });
+    navList.appendChild(b);
+
+    var c = document.createElement("button");
+    c.className = "chip" + (s.gate ? " " + s.gate : "");
+    c.setAttribute("data-go", s.id);
+    c.textContent = s.label;
+    c.addEventListener("click", function () { go(s.id); });
+    chips.appendChild(c);
+  });
+
+  function secDef(id) { for (var i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].id === id) return SECTIONS[i]; return null; }
+  // A gated section is reachable only once the body carries the matching class.
+  // Deep-linking #models as a member (or #engine as an admin) lands on Profile
+  // instead of an empty page whose every control 403s.
+  function allowed(id) {
+    var d = secDef(id);
+    if (!d || !d.gate) return true;
+    return document.body.classList.contains(d.gate === "owner-only" ? "is-owner" : "is-admin");
+  }
+  function go(id) {
+    if (!allowed(id)) id = "profile";
+    active = id;
+    Object.keys(sections).forEach(function (k) { sections[k].classList.toggle("active", k === id); });
+    document.querySelectorAll("[data-go]").forEach(function (el) { el.classList.toggle("active", el.getAttribute("data-go") === id); });
+    var sc = document.querySelector(".scontent"); if (sc) sc.scrollTop = 0;
+    if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
+  }
+  // Remembered because go() rewrites the hash: a deep link to a gated section
+  // (#engine, #models) arrives before the profile has said whether this account
+  // may open it, so it is parked here and re-tried once the role is known.
+  var startHash = (location.hash || "").replace("#", "");
+  var wantedSection = SECTIONS.some(function (s) { return s.id === startHash; }) ? startHash : "";
+  go(wantedSection || "profile");
+
+  /* ---------- chat defaults (account-scoped) ---------- */
+  // Model / effort / approval used to be pref() — localStorage, so per browser.
+  // The chat client now reads them off /api/settings/profile, and this page is
+  // the explicit place to set them. Same endpoint either way, so changing the
+  // pill in the composer and changing it here are the same act.
+  (function () {
+    var mSel = document.getElementById("defModel");
+    var eSeg = document.getElementById("defEffort");
+    var eRow = document.getElementById("defEffortRow");
+    var fRow = document.getElementById("defFastRow");
+    var fSw  = document.getElementById("defFast");
+    var pSel = document.getElementById("defPerm");
+    if (!mSel) return;
+    var EFFORT_SHORT = { low: "Low", medium: "Med", high: "High", xhigh: "XHi", max: "Max" };
+    var live = [];            // the account's real model list, from /api/models
+    var cur = { model: "", effort: "", fastMode: false, permissionMode: "default" };
+
+    function save(patch) {
+      Object.assign(cur, patch);
+      sapi("PUT", "/api/settings/defaults", patch)
+        .then(function () { toast("ok", "Saved"); })
+        .catch(function (e) { toast("error", (e && e.message) || "Could not save"); });
+    }
+    function modelOf(key) {
+      for (var i = 0; i < live.length; i++) if (live[i].key === key) return live[i];
+      return null;
+    }
+    // Only the levels THIS model actually accepts, exactly like the composer's
+    // picker — xhigh/max appear where they are supported and nowhere else, and
+    // the whole row disappears for a model with no effort control (Haiku).
+    function paintEffort() {
+      var m = modelOf(cur.model);
+      var list = (m && m.efforts) || [];
+      if (eRow) eRow.hidden = !list.length;
+      if (fRow) fRow.hidden = !(m && m.fast);
+      if (fSw) fSw.classList.toggle("on", !!cur.fastMode && !!(m && m.fast));
+      if (!eSeg) return;
+      eSeg.innerHTML = "";
+      list.forEach(function (lv) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = EFFORT_SHORT[lv] || lv;
+        b.className = (lv === cur.effort ? "active" : "");
+        b.addEventListener("click", function () { save({ effort: lv }); paintEffort(); });
+        eSeg.appendChild(b);
+      });
+    }
+    function paintModels() {
+      mSel.innerHTML = "";
+      if (!live.length) { mSel.innerHTML = '<option value="">Server default</option>'; return; }
+      var d = document.createElement("option");
+      d.value = ""; d.textContent = "Server default";
+      mSel.appendChild(d);
+      live.forEach(function (m) {
+        var o = document.createElement("option");
+        o.value = m.key; o.textContent = m.label;
+        mSel.appendChild(o);
+      });
+      mSel.value = modelOf(cur.model) ? cur.model : "";
+    }
+    mSel.addEventListener("change", function () {
+      var m = modelOf(mSel.value);
+      // A model change can invalidate the effort level and fast mode, so send the
+      // whole consistent trio rather than leaving "max" set on a model without it.
+      var patch = { model: mSel.value };
+      var efforts = (m && m.efforts) || [];
+      if (cur.effort && efforts.indexOf(cur.effort) < 0) patch.effort = efforts.length ? efforts[efforts.length - 1] : "";
+      if (cur.fastMode && !(m && m.fast)) patch.fastMode = false;
+      save(patch); paintEffort();
+    });
+    if (fSw) fSw.addEventListener("click", function () {
+      var m = modelOf(cur.model);
+      if (!(m && m.fast)) return;
+      save({ fastMode: !cur.fastMode }); paintEffort();
+    });
+    if (pSel) pSel.addEventListener("change", function () { save({ permissionMode: pSel.value }); });
+
+    // The model list mirrors the composer's: /api/models, with the "· 1M" twin
+    // for every model the server marks ctx1m, so the two pickers offer the same
+    // set and a key chosen in one resolves in the other.
+    sapi("GET", "/api/models").then(function (d) {
+      var out = [];
+      ((d && d.models) || []).forEach(function (m) {
+        out.push({ key: m.id, label: m.short, efforts: m.efforts, fast: !!m.fast });
+        if (m.ctx1m) out.push({ key: m.id + "#1m", label: m.short + " · 1M", efforts: m.efforts, fast: false });
+      });
+      live = out; paintModels(); paintEffort();
+    }).catch(function () { paintModels(); });
+
+    // Seed from the profile this page already loads.
+    // applyProfile() is the page's single boot path for the account, so it hands
+    // the defaults over rather than this block re-fetching the same document.
+    window.__applyChatDefaults = function (d) {
+      if (!d) return;
+      cur = Object.assign(cur, d);
+      if (pSel) pSel.value = cur.permissionMode || "default";
+      paintModels(); paintEffort();
+    };
+  })();
+
+  /* ---------- theme ---------- */
+  var SUN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>';
+  var MOON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>';
+  var tt = document.getElementById("themeToggle"), ttm = document.getElementById("themeToggleM");
+  function syncTheme() {
+    var light = window.PlumiTheme && PlumiTheme.get() === "light";
+    if (tt) tt.innerHTML = light ? MOON : SUN;
+    if (ttm) ttm.innerHTML = light ? MOON : SUN;
+    document.querySelectorAll("[data-theme-opt]").forEach(function (b) {
+      var v = b.getAttribute("data-theme-opt");
+      var sys = localStorage.getItem("plumi_theme_mode") === "system";
+      b.classList.toggle("active", sys ? v === "system" : (v === (light ? "light" : "dark")));
+    });
+  }
+  function setTheme(mode) {
+    if (mode === "system") {
+      localStorage.setItem("plumi_theme_mode", "system");
+      var sysLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+      PlumiTheme.set(sysLight ? "light" : "dark");
+    } else {
+      localStorage.setItem("plumi_theme_mode", "manual");
+      PlumiTheme.set(mode);
+    }
+    syncTheme();
+  }
+  if (tt) tt.addEventListener("click", function () { setTheme(PlumiTheme.get() === "light" ? "dark" : "light"); });
+  if (ttm) ttm.addEventListener("click", function () { setTheme(PlumiTheme.get() === "light" ? "dark" : "light"); });
+  document.querySelectorAll("[data-theme-opt]").forEach(function (b) {
+    b.addEventListener("click", function () { setTheme(b.getAttribute("data-theme-opt")); });
+  });
+  window.addEventListener("plumi-theme", syncTheme);
+  syncTheme();
+
+  /* ---------- palettes ---------- */
+  // A palette is a whole scheme; Light/Dark above is only the MODE. Picking one
+  // sets both, and is remembered as the palette for that mode — so the sun/moon
+  // toggle flips between the two schemes actually chosen, not back to the
+  // built-ins. Each card previews itself in its own colours: "Gruvbox" is a word
+  // until you see it.
+  var TICK = '<svg class="pal-tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+  var palWrap = document.getElementById("palettes");
+  if (palWrap && window.PlumiTheme && PlumiTheme.palettes) {
+    // Grouped by mode rather than badged per card. A "DARK" chip on every card
+    // was costing ~40px of the one line the name has, which is what truncated
+    // "Catppuccin Mocha" to "Catppuccin M…" — and the preview already says which
+    // it is more loudly than a label could.
+    var all = PlumiTheme.palettes();
+    [["Dark", true], ["Light", false]].forEach(function (grp) {
+      var h = document.createElement("div");
+      h.className = "pal-group"; h.textContent = grp[0];
+      palWrap.appendChild(h);
+      all.filter(function (p) { return p.dark === grp[1]; }).forEach(function (p) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "pal"; b.setAttribute("data-pal", p.id);
+      b.title = p.label + " — " + (p.dark ? "dark" : "light");
+      // Painted from the palette's own [bg, surface-2, text, accent] literals.
+      // A var() read would resolve against the PAGE's scheme, not this card's —
+      // plume.css scopes a palette to html[data-palette], so every card would
+      // preview whatever is currently applied and they would all look the same.
+      var chips = document.createElement("span");
+      chips.className = "pal-chips";
+      chips.innerHTML =
+        '<i class="wide" style="background:' + p.preview[0] + '"></i>' +
+        '<i style="background:' + p.preview[1] + '"></i>' +
+        '<i style="background:' + p.preview[2] + '"></i>' +
+        '<i class="wide" style="background:' + p.preview[3] + '"></i>';
+      var name = document.createElement("span");
+      name.className = "pal-name";
+      name.innerHTML = TICK + '<span>' + p.label + '</span>';
+      b.appendChild(chips); b.appendChild(name);
+      b.addEventListener("click", function () {
+        PlumiTheme.setPalette(p.id);
+        syncTheme(); renderPalettes(); renderSwatches();
+        toast("info", p.label + " applied");
+      });
+      palWrap.appendChild(b);
+      });
+    });
+  }
+  function renderPalettes() {
+    if (!palWrap) return;
+    var cur = PlumiTheme.getPalette();
+    palWrap.querySelectorAll(".pal").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-pal") === cur);
+    });
+  }
+  window.addEventListener("plumi-palette", renderPalettes);
+  window.addEventListener("plumi-theme", renderPalettes);
+  renderPalettes();
+
+  /* ---------- accent swatches ---------- */
+  // Plume is a one-accent system, so these are not sixteen brand colours — they
+  // are sixteen ways to tint the same single accent slot, and only ever one at a
+  // time. Every hex is verified rather than chosen by eye: --on-accent is picked
+  // from Plume's two inks, so a fill that neither ink can sit on legibly is not
+  // offerable. Indigo is #7277C6 and not the canonical #6C71C4 for exactly that
+  // reason, and Slate was darkened for it once already. theme.js derives the
+  // AA-legible TEXT variant for whichever is picked, per palette.
+  var ACCENTS = [
+    { name: "Theme default", hex: "" },
+    { name: "Terracotta", hex: "#E8A06F" },
+    { name: "Ochre", hex: "#C98A2E" },
+    { name: "Amber", hex: "#E0A81F" },
+    { name: "Rust", hex: "#C4622C" },
+    { name: "Brick", hex: "#B4443C" },
+    { name: "Clay", hex: "#B98A6B" },
+    { name: "Rose", hex: "#D8698F" },
+    { name: "Mauve", hex: "#A77BCA" },
+    { name: "Indigo", hex: "#7277C6" },
+    { name: "Sky", hex: "#5B9BD5" },
+    { name: "Lagoon", hex: "#4FA8B8" },
+    { name: "Teal", hex: "#3A9188" },
+    { name: "Sage", hex: "#8FAA8B" },
+    { name: "Moss", hex: "#6E8C4A" },
+    { name: "Slate", hex: "#63707A" },
+    { name: "Ink", hex: "#8A857A" }
+  ];
+  var swatches = document.getElementById("swatches");
+  function curAccent() { return (window.PlumiTheme && PlumiTheme.getAccent()) || ""; }
+  var SW_TICK = '<span class="sw-tick"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>';
+  ACCENTS.forEach(function (a) {
+    var s = document.createElement("button");
+    s.className = "swatch";
+    s.title = a.name;
+    s.setAttribute("aria-label", a.name);
+    // "Theme default" paints --accent-base, NOT --accent. --accent is the LIVE
+    // value, so this swatch used to repaint itself as whatever you had just
+    // picked: choose Sage and two swatches went sage, with the ring on the far
+    // one — which is exactly why it was impossible to tell what was selected.
+    // --accent-base is the palette's own accent and no custom pick overwrites it.
+    s.style.backgroundColor = a.hex || "var(--accent-base)";
+    // The tick is drawn in the ink that colour uses for its own labels, so it
+    // stays legible on a light swatch and a dark one alike.
+    s.style.color = a.hex ? inkFor(a.hex) : "var(--on-accent)";
+    s.innerHTML = SW_TICK;
+    s.setAttribute("data-accent", a.hex);
+    s.addEventListener("click", function () {
+      PlumiTheme.setAccent(a.hex);
+      renderSwatches();
+      toast("info", a.name === "Theme default" ? "Using the palette's own accent" : a.name + " accent applied");
+    });
+    swatches.appendChild(s);
+  });
+  // Same two inks theme.js chooses between for --on-accent, same rule.
+  function inkFor(hex) {
+    var n = parseInt(String(hex).replace("#", ""), 16);
+    var rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    function lum(c) {
+      var a = c.map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+      return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+    }
+    function con(a, b) { var l1 = lum(a), l2 = lum(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); }
+    return con([26, 16, 6], rgb) >= con([248, 246, 241], rgb) ? "#1A1006" : "#F8F6F1";
+  }
+  function renderSwatches() {
+    var cur = curAccent();
+    swatches.querySelectorAll(".swatch").forEach(function (s) {
+      s.classList.toggle("active", (s.getAttribute("data-accent") || "") === cur);
+    });
+  }
+  window.addEventListener("plumi-accent", renderSwatches);
+  renderSwatches();
+
+  /* ---------- generic toggles ---------- */
+  // "switchModels" is a workspace policy (server-enforced), not a device pref —
+  // it's wired to /api/settings/workspace below, so skip it here.
+  document.querySelectorAll("[data-toggle]").forEach(function (sw) {
+    var name = sw.getAttribute("data-toggle");
+    if (name === "switchModels") return;
+    var key = "plumi_pref_" + name;
+    if (localStorage.getItem(key) === "1") sw.classList.add("on");
+    sw.addEventListener("click", function () {
+      sw.classList.toggle("on");
+      localStorage.setItem(key, sw.classList.contains("on") ? "1" : "0");
+      // Motion/density apply app-wide; reflect the change in THIS page instantly.
+      if (window.PlumiTheme && PlumiTheme.refreshPrefs) PlumiTheme.refreshPrefs();
+    });
+  });
+
+  /* ---------- profile + workspace (real, persisted) ---------- */
+  var pfFirst = document.getElementById("pfFirst");
+  var pfLast = document.getElementById("pfLast");
+  var pfEmail = document.getElementById("pfEmail");
+  var pfRole = document.getElementById("pfRole");
+
+  // Show an uploaded photo (data URL) on an avatar element, else fall back to
+  // initials. The data URL is JPEG/PNG/WebP base64 — no quotes — safe in url("").
+  function setAvatarEl(el, avatar, initials) {
+    if (!el) return;
+    if (avatar) {
+      el.style.backgroundImage = 'url("' + avatar + '")';
+      el.textContent = "";
+      el.classList.add("has-img");
+    } else {
+      el.style.backgroundImage = "";
+      el.textContent = initials;
+      el.classList.remove("has-img");
+    }
+  }
+
+  // Reflect the saved profile everywhere it shows: the form fields, both avatars
+  // (photo or initials), and the sidebar identity. Also flips body.is-admin /
+  // .is-owner, which is what reveals the gated sections and controls.
+  function applyProfile(p) {
+    if (!p) return;
+    if (pfFirst) pfFirst.value = p.firstName || "";
+    if (pfLast) pfLast.value = p.lastName || "";
+    if (pfEmail) pfEmail.value = p.email || "";
+    if (pfRole) pfRole.value = p.role || "";
+    window._isAdmin = !!p.isAdmin;
+    window._isOwner = !!p.isOwner;
+    window._canPowerOff = !!p.canPowerOff;
+    document.body.classList.toggle("is-admin", !!p.isAdmin);
+    document.body.classList.toggle("is-owner", !!p.isOwner);
+    document.body.classList.toggle("is-power", !!p.canPowerOff);
+    var initials = (p.initials || "A").toUpperCase();
+    setAvatarEl(document.getElementById("navAvatar"), p.avatar, initials);
+    setAvatarEl(document.getElementById("pfAvatar"), p.avatar, initials);
+    var rmA = document.getElementById("removeAvatar"); if (rmA) rmA.hidden = !p.avatar;
+    var navName = document.getElementById("navName");
+    if (navName) navName.textContent = p.name || "You";
+    var navRole = document.getElementById("navRole");
+    if (navRole) navRole.textContent = p.email || p.role || "";
+    if (window.__applyChatDefaults) window.__applyChatDefaults(p.chatDefaults);
+    // The role may have just opened the section the URL asked for — or closed the
+    // one we are standing in.
+    if (wantedSection && wantedSection !== active && allowed(wantedSection)) go(wantedSection);
+    else if (!allowed(active)) go("profile");
+  }
+
+  var switchModelsEl = document.querySelector('[data-toggle="switchModels"]');
+  if (switchModelsEl) switchModelsEl.addEventListener("click", function () {
+    switchModelsEl.classList.toggle("on");
+    var on = switchModelsEl.classList.contains("on");
+    saveWs({ allowMemberSwitch: on }, on ? "Members can switch models" : "Members locked to the default model");
+  });
+
+  document.getElementById("saveProfile").addEventListener("click", function () {
+    var btn = document.getElementById("saveProfile"); btn.disabled = true;
+    sapi("PUT", "/api/settings/profile", { firstName: pfFirst.value.trim(), lastName: pfLast.value.trim(), email: pfEmail.value.trim() })
+      .then(function (p) { applyProfile(p); toast("ok", "Profile saved"); })
+      .catch(function (e) { toast("bad", e.message); })
+      .then(function () { btn.disabled = false; });
+  });
+  function saveWs(patch, okMsg) {
+    sapi("PUT", "/api/settings/workspace", patch).then(function () { if (okMsg) toast("ok", okMsg); })
+      .catch(function (e) { toast("bad", e.message); });
+  }
+  var budgetEnforcedEl = document.getElementById("budgetEnforced");
+  if (budgetEnforcedEl) {
+    var flipBudget = function () {
+      var on = !budgetEnforcedEl.classList.contains("on");
+      budgetEnforcedEl.classList.toggle("on", on);
+      budgetEnforcedEl.setAttribute("aria-checked", on ? "true" : "false");
+      saveWs({ budgetEnforced: on }, on ? "Turns will stop at the budget" : "Budget is a note again — nothing is refused");
+      loadSpend();
+    };
+    budgetEnforcedEl.addEventListener("click", flipBudget);
+    budgetEnforcedEl.addEventListener("keydown", function (e) {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); flipBudget(); }
+    });
+  }
+  var spendCapEl = document.getElementById("spendCap");
+  if (spendCapEl) spendCapEl.addEventListener("change", function () {
+    var v = parseInt(spendCapEl.value, 10); if (isNaN(v)) return;
+    saveWs({ spendCap: v }, v > 0 ? "Budget set — turns stop above it" : "Budget cleared — no limit");
+    loadSpend();
+  });
+  /* ---------- avatar: pick, crop, upload ----------
+     The old flow handed the file straight to a centre-crop and uploaded it. On a
+     landscape photo the middle of the frame is rarely the face, so what you got
+     was whatever happened to be in the middle. You choose the square now.
+
+     The whole thing is one number set: a source rectangle on the image.
+
+       sMax = the image's short side            (zoom 1 = the biggest square that fits)
+       s    = sMax / zoom                       (side of the crop, in image pixels)
+       sx,sy = its top-left, clamped into the image so the square is always full
+
+     The stage renders that exact rectangle through the porthole, and the upload
+     is `drawImage(img, sx, sy, s, s, 0, 0, 256, 256)`. One set of numbers, two
+     consumers — there is no second code path to drift. */
+  var OUT = 256;                 // saved square, in pixels
+  var ZOOM_MAX = 4;
+  var crop = {
+    img: null,       // the HTMLImageElement being cropped
+    url: null,       // its object URL, revoked on close
+    sMax: 0, s: 0, sx: 0, sy: 0, zoom: 1,
+    P: 0, ox: 0, oy: 0,   // porthole side and its offset inside the stage
+    dataUrl: null
+  };
+
+  var cropSheetEl = document.getElementById("cropSheet");
+  var cropStage = document.getElementById("cropStage");
+  var cropImg = document.getElementById("cropImg");
+  var cropHole = document.getElementById("cropHole");
+  var cropZoom = document.getElementById("cropZoom");
+  var cropPv = ["cropPvA", "cropPvB", "cropPvC"].map(function (id) { return document.getElementById(id); });
+  var cropCanvas = document.createElement("canvas");
+  cropCanvas.width = cropCanvas.height = OUT;
+
+  function clampCrop() {
+    crop.s = crop.sMax / crop.zoom;
+    var maxX = crop.img.naturalWidth - crop.s;
+    var maxY = crop.img.naturalHeight - crop.s;
+    crop.sx = Math.max(0, Math.min(maxX, crop.sx));
+    crop.sy = Math.max(0, Math.min(maxY, crop.sy));
+  }
+
+  // Lay the image out so the porthole frames exactly [sx, sy, s, s].
+  function drawStage() {
+    if (!crop.img) return;
+    var k = crop.P / crop.s;                 // image pixels -> stage pixels
+    cropImg.style.width = (crop.img.naturalWidth * k) + "px";
+    cropImg.style.height = (crop.img.naturalHeight * k) + "px";
+    cropImg.style.left = (crop.ox - crop.sx * k) + "px";
+    cropImg.style.top = (crop.oy - crop.sy * k) + "px";
+    cropZoom.value = String(Math.round(crop.zoom * 100));
+    document.getElementById("cropOut").disabled = crop.zoom <= 1.001;
+    document.getElementById("cropIn").disabled = crop.zoom >= ZOOM_MAX - 0.001;
+    schedulePreview();
+  }
+
+  // Re-encode and re-hang the preview at most once per frame: a drag fires far
+  // more pointermove events than the screen has frames to show them in.
+  var previewPending = false;
+  function schedulePreview() {
+    if (previewPending) return;
+    previewPending = true;
+    requestAnimationFrame(function () {
+      previewPending = false;
+      renderPreview();
+    });
+  }
+  function renderCrop() {
+    var ctx = cropCanvas.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.clearRect(0, 0, OUT, OUT);
+    ctx.drawImage(crop.img, crop.sx, crop.sy, crop.s, crop.s, 0, 0, OUT, OUT);
+    return cropCanvas.toDataURL("image/jpeg", 0.85);
+  }
+  function renderPreview() {
+    if (!crop.img) return;
+    crop.dataUrl = renderCrop();
+    // Real avatars, real data URL, the same CSS every other avatar goes through.
+    cropPv.forEach(function (el) { setAvatarEl(el, crop.dataUrl, ""); });
+    var kb = Math.round((crop.dataUrl.length * 3 / 4) / 1024);
+    document.getElementById("cropHint").textContent =
+      "Saved as a " + OUT + "px square · about " + kb + " KB.";
+  }
+
+  // Zoom about a point, so pinching and the +/- buttons both keep whatever you
+  // were looking at under your fingers instead of drifting to a corner.
+  function setZoom(next, anchorX, anchorY) {
+    if (!crop.img) return;
+    next = Math.max(1, Math.min(ZOOM_MAX, next));
+    var ax = (anchorX === undefined) ? crop.P / 2 : anchorX;
+    var ay = (anchorY === undefined) ? crop.P / 2 : anchorY;
+    var k = crop.P / crop.s;
+    var ix = crop.sx + ax / k;               // image point under the anchor, before
+    var iy = crop.sy + ay / k;
+    crop.zoom = next;
+    crop.s = crop.sMax / crop.zoom;
+    var k2 = crop.P / crop.s;
+    crop.sx = ix - ax / k2;                  // …and after
+    crop.sy = iy - ay / k2;
+    clampCrop();
+    drawStage();
+  }
+
+  // The porthole is the largest square that fits the stage with a margin, so the
+  // photo you are cutting away stays visible around it.
+  function layoutStage() {
+    var r = cropStage.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    crop.P = Math.round(Math.min(r.width, r.height) * 0.78);
+    crop.ox = Math.round((r.width - crop.P) / 2);
+    crop.oy = Math.round((r.height - crop.P) / 2);
+    cropHole.style.width = crop.P + "px";
+    cropHole.style.height = crop.P + "px";
+    cropHole.style.left = crop.ox + "px";
+    cropHole.style.top = crop.oy + "px";
+  }
+
+  function openCropper(file) {
+    if (!file || file.type.indexOf("image/") !== 0) { toast("bad", "Choose an image file"); return; }
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      if (!img.naturalWidth || !img.naturalHeight) { URL.revokeObjectURL(url); toast("bad", "Could not read that image"); return; }
+      releaseCrop();
+      crop.img = img; crop.url = url;
+      crop.sMax = Math.min(img.naturalWidth, img.naturalHeight);
+      crop.zoom = 1; crop.s = crop.sMax;
+      crop.sx = (img.naturalWidth - crop.s) / 2;    // start centred, as before
+      crop.sy = (img.naturalHeight - crop.s) / 2;
+      cropImg.src = url;
+      cropSheet.open();
+      // The sheet has to be on screen before its box can be measured.
+      requestAnimationFrame(function () { layoutStage(); clampCrop(); drawStage(); });
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); toast("bad", "Could not read that image"); };
+    img.src = url;
+  }
+  function releaseCrop() {
+    if (crop.url) { URL.revokeObjectURL(crop.url); crop.url = null; }
+    crop.img = null; crop.dataUrl = null;
+  }
+  function closeCropper() { cropSheet.close(); }
+
+  /* --- gestures --- */
+  var pointers = new Map();      // active pointers on the stage
+  var pinchStart = 0, pinchZoom = 1;
+  cropStage.addEventListener("pointerdown", function (e) {
+    if (!crop.img) return;
+    cropStage.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) { pinchStart = pinchDist(); pinchZoom = crop.zoom; }
+    e.preventDefault();
+  });
+  cropStage.addEventListener("pointermove", function (e) {
+    if (!crop.img || !pointers.has(e.pointerId)) return;
+    var prev = pointers.get(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size >= 2) {
+      var d = pinchDist();
+      if (pinchStart > 0 && d > 0) {
+        var r = cropStage.getBoundingClientRect();
+        var c = pinchCentre();
+        setZoom(pinchZoom * (d / pinchStart), c.x - r.left - crop.ox, c.y - r.top - crop.oy);
+      }
+      return;
+    }
+    var k = crop.P / crop.s;
+    crop.sx -= (e.clientX - prev.x) / k;
+    crop.sy -= (e.clientY - prev.y) / k;
+    clampCrop();
+    drawStage();
+  });
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchStart = 0;
+    try { cropStage.releasePointerCapture(e.pointerId); } catch (err) { /* already gone */ }
+  }
+  cropStage.addEventListener("pointerup", endPointer);
+  cropStage.addEventListener("pointercancel", endPointer);
+  function pinchPair() { var a = []; pointers.forEach(function (p) { a.push(p); }); return a; }
+  function pinchDist() {
+    var a = pinchPair(); if (a.length < 2) return 0;
+    return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+  }
+  function pinchCentre() {
+    var a = pinchPair();
+    return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 };
+  }
+  // Trackpad / wheel zoom, anchored where the pointer is.
+  cropStage.addEventListener("wheel", function (e) {
+    if (!crop.img) return;
+    e.preventDefault();
+    var r = cropStage.getBoundingClientRect();
+    setZoom(crop.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08), e.clientX - r.left - crop.ox, e.clientY - r.top - crop.oy);
+  }, { passive: false });
+  // Keyboard: the stage is focusable, so it must be operable without a pointer.
+  cropStage.addEventListener("keydown", function (e) {
+    if (!crop.img) return;
+    var step = (e.shiftKey ? 20 : 6) / (crop.P / crop.s);
+    var handled = true;
+    if (e.key === "ArrowLeft") crop.sx -= step;
+    else if (e.key === "ArrowRight") crop.sx += step;
+    else if (e.key === "ArrowUp") crop.sy -= step;
+    else if (e.key === "ArrowDown") crop.sy += step;
+    else if (e.key === "+" || e.key === "=") { setZoom(crop.zoom * 1.15); return; }
+    else if (e.key === "-" || e.key === "_") { setZoom(crop.zoom / 1.15); return; }
+    else handled = false;
+    if (!handled) return;
+    e.preventDefault();
+    clampCrop(); drawStage();
+  });
+  cropZoom.addEventListener("input", function () { setZoom(Number(cropZoom.value) / 100); });
+  document.getElementById("cropIn").addEventListener("click", function () { setZoom(crop.zoom * 1.25); });
+  document.getElementById("cropOut").addEventListener("click", function () { setZoom(crop.zoom / 1.25); });
+  window.addEventListener("resize", function () {
+    if (!crop.img || !cropSheet.isOpen()) return;
+    layoutStage(); clampCrop(); drawStage();
+  });
+
+  /* --- pick / save / remove --- */
+  var avatarInput = document.getElementById("avatarInput");
+  document.getElementById("changeAvatar").addEventListener("click", function () { avatarInput.click(); });
+  avatarInput.addEventListener("change", function () {
+    var f = avatarInput.files && avatarInput.files[0];
+    avatarInput.value = "";      // so picking the SAME file again still fires change
+    if (f) openCropper(f);
+  });
+  document.getElementById("cropCancel").addEventListener("click", closeCropper);
+  document.getElementById("cropSave").addEventListener("click", function () {
+    var btn = document.getElementById("cropSave");
+    if (!crop.img) return;
+    var dataUrl = crop.dataUrl || renderCrop();   // exactly the bytes the preview showed
+    btn.disabled = true;
+    sapi("PUT", "/api/settings/avatar", { data: dataUrl })
+      .then(function (p) { applyProfile(p); closeCropper(); toast("ok", "Photo updated"); })
+      .catch(function (e) { toast("bad", e.message); })
+      .then(function () { btn.disabled = false; });
+  });
+  document.getElementById("removeAvatar").addEventListener("click", function () {
+    sapi("DELETE", "/api/settings/avatar")
+      .then(function (p) { applyProfile(p); toast("ok", "Photo removed"); })
+      .catch(function (e) { toast("bad", e.message); });
+  });
+  // Change your own 6-digit login passcode (PIN). Works for every account.
+  document.getElementById("updatePin").addEventListener("click", function () {
+    var curEl = document.getElementById("pcCur"), newEl = document.getElementById("pcNew"), confEl = document.getElementById("pcConf");
+    var cur = curEl.value.trim(), n = newEl.value.trim(), c = confEl.value.trim();
+    if (!/^\d{6}$/.test(cur)) return toast("bad", "Enter your current 6-digit passcode");
+    if (!/^\d{6}$/.test(n)) return toast("bad", "New passcode must be exactly 6 digits");
+    if (n !== c) return toast("bad", "Passcodes don't match");
+    if (n === cur) return toast("bad", "Choose a different passcode");
+    var btn = document.getElementById("updatePin"); btn.disabled = true;
+    sapi("POST", "/api/auth/pin/change", { current: cur, next: n })
+      .then(function () { curEl.value = ""; newEl.value = ""; confEl.value = ""; toast("ok", "Passcode updated"); })
+      .catch(function (e) { toast("bad", e.message); })
+      .then(function () { btn.disabled = false; });
+  });
+
+  document.getElementById("updatePw").addEventListener("click", function () {
+    var curEl = document.getElementById("pwCur"), newEl = document.getElementById("pwNew"), confEl = document.getElementById("pwConf");
+    var cur = curEl.value, n = newEl.value, c = confEl.value;
+    if (!cur) return toast("bad", "Enter your current password");
+    if (n.length < 8) return toast("bad", "New password is too short");
+    if (n !== c) return toast("bad", "Passwords don't match");
+    var btn = document.getElementById("updatePw"); btn.disabled = true;
+    sapi("POST", "/api/settings/password", { current: cur, next: n, confirm: c })
+      .then(function () {
+        curEl.value = ""; newEl.value = ""; confEl.value = "";
+        toast("ok", "Password updated — sign in again with your new password");
+        // The browser still holds the old Basic-auth credentials; reloading
+        // makes it re-prompt for the new password.
+        setTimeout(function () { location.reload(); }, 1800);
+      })
+      .catch(function (e) { btn.disabled = false; toast("bad", e.message); });
+  });
+
+  /* ---------- passkeys (real WebAuthn, bound to your account) ---------- */
+  function b64urlToBuf(s) {
+    s = String(s).replace(/-/g, "+").replace(/_/g, "/");
+    var pad = s.length % 4 ? 4 - (s.length % 4) : 0; s += "=".repeat(pad);
+    var bin = atob(s), a = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+    return a.buffer;
+  }
+  function bufToB64url(buf) {
+    var b = new Uint8Array(buf), s = "";
+    for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function fmtDate(ts) { try { return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); } catch (e) { return "recently"; } }
+  function canBio() { return !!(window.PublicKeyCredential && navigator.credentials); }
+
+  var passkeyList = document.getElementById("passkeyList");
+  function renderPasskeys() {
+    passkeyList.innerHTML = '<div class="empty-line">Loading…</div>';
+    sapi("GET", "/api/auth/webauthn/credentials").then(function (d) {
+      var creds = (d && d.credentials) || [];
+      passkeyList.innerHTML = "";
+      if (!creds.length) { passkeyList.innerHTML = '<div class="empty-line">No passkeys yet. Add one to unlock with Face ID / Touch ID.</div>'; return; }
+      creds.forEach(function (c) {
+        var row = document.createElement("div");
+        row.className = "passkey";
+        row.innerHTML =
+          '<span class="pk-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 14 0"></path><path d="M7.5 16.5A6 6 0 0 1 7 13a5 5 0 0 1 10 0c0 1.4-.2 2.6-.6 3.8"></path><path d="M12 13v3.5a3 3 0 0 0 .9 2.1"></path></svg></span>' +
+          '<span class="pk-main"><div class="pk-name">Passkey</div><div class="pk-sub">Added ' + esc(fmtDate(c.createdAt)) + '</div></span>' +
+          '<button class="btn btn-danger sm" type="button">Remove</button>';
+        row.querySelector("button").addEventListener("click", function () {
+          sapi("DELETE", "/api/auth/webauthn/credentials/" + encodeURIComponent(c.id))
+            .then(function () { toast("ok", "Passkey removed"); renderPasskeys(); })
+            .catch(function (e) { toast("bad", e.message); });
+        });
+        passkeyList.appendChild(row);
+      });
+    }).catch(function () { passkeyList.innerHTML = '<div class="empty-line">Couldn\'t load passkeys.</div>'; });
+  }
+  document.getElementById("addPasskey").addEventListener("click", function () {
+    if (!window.isSecureContext || !canBio()) { toast("bad", "Passkeys need https:// or localhost"); return; }
+    var btn = document.getElementById("addPasskey"); btn.disabled = true;
+    sapi("POST", "/api/auth/webauthn/register/options", {}).then(function (opt) {
+      var pk = opt.publicKey;
+      pk.challenge = b64urlToBuf(pk.challenge);
+      pk.user.id = b64urlToBuf(pk.user.id);
+      if (pk.excludeCredentials) pk.excludeCredentials = pk.excludeCredentials.map(function (c) { return { type: c.type, id: b64urlToBuf(c.id) }; });
+      return navigator.credentials.create({ publicKey: pk }).then(function (cred) {
+        return sapi("POST", "/api/auth/webauthn/register/verify", {
+          cid: opt.cid,
+          clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+          attestationObject: bufToB64url(cred.response.attestationObject)
+        });
+      });
+    }).then(function () { toast("ok", "Passkey added"); renderPasskeys(); })
+      .catch(function (e) { toast("bad", (e && e.name === "NotAllowedError") ? "Cancelled" : (e.message || "Couldn't add passkey")); })
+      .then(function () { btn.disabled = false; });
+  });
+  renderPasskeys();
+
+  /* ---------- sign out ----------
+     Logging out clears the SESSION COOKIE. It cannot clear an HTTP Basic
+     credential: the browser keeps re-sending the Authorization header on every
+     request for the rest of the process's life, and there is no API to make it
+     forget. That is the lifeline working exactly as designed — but the old code
+     redirected to /login, the lifeline let you straight back in, and the button
+     looked broken. So: log out, then ASK the server whether we are still
+     authenticated. If we are, it is Basic, and we say so in plain words. */
+  var basicNote = document.getElementById("basicSignOutNote");
+  function explainBasicSignOut() {
+    if (!basicNote) return;
+    basicNote.innerHTML =
+      "<b>Signing out can't take effect on this device.</b> You're in with the " +
+      "<b>workspace access password</b> (HTTP Basic), not a personal session — your browser " +
+      "re-sends that password automatically, so the box lets you straight back in. " +
+      "Your session cookie <i>has</i> been cleared. To finish signing out, do one of these:" +
+      "<ul style='margin:8px 0 0;padding-left:18px'>" +
+      "<li>Quit the PlumiChat app completely (or close every tab for this site) — the saved header dies with the browsing session.</li>" +
+      "<li>Delete the saved password for this site in your browser or keychain.</li>" +
+      "<li>Change the workspace access password above — that invalidates it on every device at once.</li>" +
+      "</ul>";
+    basicNote.hidden = false;
+    toast("info", "Still signed in — see the note above");
+  }
+  document.getElementById("signOutBtn").addEventListener("click", function () {
+    var btn = document.getElementById("signOutBtn"); btn.disabled = true;
+    sapi("POST", "/api/auth/logout")
+      .catch(function () { /* the cookie is cleared client-side either way */ })
+      .then(function () {
+        // /api/auth/status is unauthenticated on purpose, so this answers even
+        // when we really are logged out. `authed` still true ⇒ Basic lifeline.
+        return fetch("/api/auth/status", { cache: "no-store" })
+          .then(function (r) { return r.json(); })
+          .catch(function () { return null; });
+      })
+      .then(function (st) {
+        if (st && st.authed) { btn.disabled = false; explainBasicSignOut(); return; }
+        location.href = "/login";
+      });
+  });
+
+  /* ---------- restart ---------- */
+  var restartBtn = document.getElementById("restartBtn");
+  if (restartBtn) restartBtn.addEventListener("click", function () {
+    if (!window.confirm("Restart the PlumiChat server now? It'll be back in a few seconds.")) return;
+    restartBtn.disabled = true; restartBtn.textContent = "Restarting…";
+    sapi("POST", "/api/system/restart", {}).then(function () {
+      toast("info", "Restarting… hang tight");
+      // Wait for the restart to begin, then poll /api/health and reload when the
+      // new process answers (require seeing it go down first to avoid a false hit).
+      setTimeout(function () {
+        var sawDown = false, n = 0;
+        (function poll() {
+          n++;
+          fetch("/api/health", { cache: "no-store" }).then(function (r) {
+            if (!r.ok) { sawDown = true; return setTimeout(poll, 600); }
+            if (sawDown || n > 8) return location.reload();
+            setTimeout(poll, 600);
+          }).catch(function () { sawDown = true; setTimeout(poll, 600); });
+        })();
+      }, 1200);
+    }).catch(function (e) {
+      restartBtn.disabled = false; restartBtn.textContent = "Restart server";
+      toast("bad", e.message || "Couldn't restart");
+    });
+  });
+
+  /* ---------- PC power (restart / shut down the Windows box) ---------- */
+  // Both buttons POST to the box, then a countdown overlay opens with a Cancel
+  // window (Windows `shutdown /a` aborts either a pending restart or shutdown).
+  (function setupPcPower() {
+    var overlay = document.getElementById("powerOverlay");
+    var titleEl = document.getElementById("powerTitle");
+    var msgEl = document.getElementById("powerMsg");
+    var cancelBtn = document.getElementById("powerCancel");
+    if (!overlay || !cancelBtn) return;
+    var timer = null;
+    function stopTick() { if (timer) { clearInterval(timer); timer = null; } }
+    function closeOverlay() { stopTick(); overlay.hidden = true; }
+
+    function wire(btnId, cfg) {
+      var btn = document.getElementById(btnId);
+      if (!btn) return;
+      btn.addEventListener("click", function () {
+        if (!window.confirm(cfg.confirm)) return;
+        btn.disabled = true;
+        sapi("POST", cfg.url, {}).then(function (d) {
+          var secs = (d && d.delay) || 6;
+          titleEl.textContent = cfg.busyTitle;
+          msgEl.innerHTML = cfg.countMsg.replace("{n}", '<span id="powerCount">' + secs + "</span>");
+          var countEl = document.getElementById("powerCount");
+          cancelBtn.hidden = false; cancelBtn.disabled = false;
+          overlay.hidden = false;
+          stopTick();
+          timer = setInterval(function () {
+            secs -= 1;
+            if (countEl) countEl.textContent = Math.max(0, secs);
+            if (secs <= 0) {
+              stopTick();
+              titleEl.textContent = cfg.doneTitle;
+              msgEl.textContent = cfg.doneMsg;
+              cancelBtn.hidden = true;
+            }
+          }, 1000);
+        }).catch(function (e) {
+          toast("bad", e.message || cfg.failMsg);
+        }).then(function () { btn.disabled = false; });
+      });
+    }
+
+    wire("rebootPcBtn", {
+      url: "/api/system/reboot",
+      confirm: "Restart the Windows PC now?\n\nPlumiChat and everything on the box goes offline for a couple of minutes, then comes back on its own. Leave the smart plug ON.",
+      busyTitle: "Restarting…",
+      countMsg: "The PC restarts in {n} seconds. It comes back on its own — leave the smart plug ON.",
+      doneTitle: "Restarting now",
+      doneMsg: "The PC is rebooting. PlumiChat will be back in a couple of minutes — leave the smart plug on.",
+      failMsg: "Couldn't restart"
+    });
+
+    wire("shutdownPcBtn", {
+      url: "/api/system/shutdown",
+      confirm: "Shut down the Windows PC now?\n\nPlumiChat and everything on the box will go offline. The PC powers off in a few seconds — then it's safe to switch off the smart plug.",
+      busyTitle: "Shutting down…",
+      countMsg: "The PC powers off in {n} seconds. Once it's fully off, you can switch off the smart plug.",
+      doneTitle: "Powering off",
+      doneMsg: "The PC is going dark now. Once it's fully off, switch off the smart plug.",
+      failMsg: "Couldn't shut down"
+    });
+
+    cancelBtn.addEventListener("click", function () {
+      cancelBtn.disabled = true;
+      sapi("POST", "/api/system/shutdown/abort", {}).then(function () {
+        closeOverlay(); toast("ok", "Cancelled");
+      }).catch(function (e) {
+        cancelBtn.disabled = false; toast("bad", e.message || "Couldn't cancel");
+      });
+    });
+  })();
+
+  /* ---------- models (live from the account) ----------
+     The select now carries MODEL IDS. It used to carry the display label and PUT
+     that, which settings.js rejects (and, before it did, silently poisoned every
+     new conversation) — the single reason "Default model" appeared to do nothing. */
+  var dm = document.getElementById("defaultModel");
+  var modelLabels = {};
+  dm.addEventListener("change", function () {
+    sapi("PUT", "/api/settings/workspace", { defaultModel: dm.value })
+      .then(function () {
+        toast("ok", dm.value ? ("Default model set to " + (modelLabels[dm.value] || dm.value)) : "Default model cleared");
+      })
+      .catch(function (e) { toast("bad", e.message); });
+  });
+  function loadModelsInto(select, current) {
+    return sapi("GET", "/api/models").then(function (d) {
+      var ms = (d && d.models) || [];
+      select.innerHTML = "";
+      var auto = document.createElement("option");
+      auto.value = ""; auto.textContent = "Automatic (server default)";
+      select.appendChild(auto);
+      ms.forEach(function (m) {
+        var o = document.createElement("option");
+        o.value = m.id;                       // the ID is what the server stores
+        o.textContent = m.short || m.name || m.id;
+        modelLabels[m.id] = o.textContent;
+        select.appendChild(o);
+      });
+      // A saved id that is no longer offered would silently reset the select to
+      // "Automatic" and hide the fact. Keep it visible instead.
+      if (current && !modelLabels[current]) {
+        var o2 = document.createElement("option");
+        o2.value = current; o2.textContent = current + " (not in your account's list)";
+        select.appendChild(o2);
+      }
+      select.value = current || "";
+      return d;
+    });
+  }
+  function loadWorkspaceAndModels() {
+    sapi("GET", "/api/settings/workspace").then(function (w) {
+      var sc = document.getElementById("spendCap"); if (sc && w.spendCap != null) sc.value = w.spendCap;
+      var be = document.getElementById("budgetEnforced");
+      if (be) { be.classList.toggle("on", !!w.budgetEnforced); be.setAttribute("aria-checked", w.budgetEnforced ? "true" : "false"); }
+      loadSpend();   // …and what has actually been used against it
+      // allowMemberSwitch: default true, so absent → on. This is server-enforced.
+      if (switchModelsEl) switchModelsEl.classList.toggle("on", w.allowMemberSwitch !== false);
+      return loadModelsInto(dm, w.defaultModel || "");
+    }).then(function (d) {
+      var ms = (d && d.models) || [];
+      var note = document.getElementById("modelsNote");
+      if (!note) return;
+      note.textContent = ms.length
+        ? (ms.length + " model" + (ms.length === 1 ? "" : "s") + " available"
+          + (d.live ? " — read live from your Claude account" : " — offline fallback list, your account may offer more")
+          + ": " + ms.map(function (m) { return m.short || m.id; }).join(", "))
+        : "Model list unavailable right now.";
+    }).catch(function (e) {
+      var note = document.getElementById("modelsNote");
+      if (note) note.textContent = "Couldn't load the model list — " + e.message;
+    });
+  }
+
+  /* ---------- members ---------- */
+  var members = [];
+  function statusBadge(s) {
+    if (s === "active") return '<span class="badge active"><span class="bdot"></span>Active</span>';
+    if (s === "onboarding") return '<span class="badge onboarding"><span class="bdot"></span>Onboarding</span>';
+    if (s === "invited") return '<span class="badge invited">Invited</span>';
+    return '<span class="badge">' + esc(s) + '</span>';
+  }
+  var summary = document.getElementById("summary");
+  var memberList = document.getElementById("memberList");
+  // Everyone can see WHO is on the box (they share it), but an email address is
+  // personal data an admin curates — a member sees only their own.
+  function maySeeEmail(m) { return !!(window._isAdmin || m.you); }
+  function renderMembers() {
+    var adminN = members.filter(function (m) { return m.role === "Owner" || m.role === "Admin"; }).length;
+    var memberN = members.length - adminN;
+    summary.innerHTML =
+      stat("People", String(members.length), "with an account") +
+      stat("Admins", String(adminN), "full access") +
+      stat("Members", String(memberN), "own private folder") +
+      stat("Active", members.filter(function (m) { return (m.status || "active") === "active"; }).length + "/" + members.length, "ready");
+
+    memberList.innerHTML = "";
+    if (!members.length) { memberList.innerHTML = '<div class="empty-line">No members yet.</div>'; return; }
+    members.forEach(function (m) {
+      var sub = maySeeEmail(m) ? (esc(m.email) + " · " + esc(m.role)) : esc(m.role);
+      var b = document.createElement("button");
+      b.className = "member";
+      b.innerHTML =
+        '<span class="avatar">' + esc(m.initials) + '</span>' +
+        '<span class="m-id"><div class="m-name">' + esc(m.name) + (m.you ? ' <span class="badge admin">You</span>' : '') + '</div><div class="m-mail">' + sub + '</div></span>' +
+        '<span class="m-status">' + statusBadge(m.status || "active") + '</span>' +
+        '<span class="m-go"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></span>';
+      b.addEventListener("click", function () { openMember(m); });
+      // /api/members carries each account's avatar. Set it through setAvatarEl
+      // rather than interpolating a data URL into the HTML above: one framing
+      // path for every avatar in the product, and no 20 KB string in an
+      // attribute that then has to be escaped correctly.
+      setAvatarEl(b.querySelector(".avatar"), m.avatar, m.initials);
+      memberList.appendChild(b);
+    });
+  }
+  function stat(k, v, d) { return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div><div class="d">' + esc(d) + '</div></div>'; }
+
+  // This month's metered usage. Appended to the budget row's own description so the
+  // figure and the caveat about what it means never get separated.
+  function loadSpend() {
+    var el = document.getElementById("spendDesc");
+    if (!el) return;
+    sapi("GET", "/api/spend").then(function (d) {
+      if (!d) return;
+      var line = document.getElementById("spendNow");
+      if (!line) {
+        line = document.createElement("div");
+        line.id = "spendNow";
+        line.style.cssText = "margin-top:6px;font-weight:600;color:var(--text)";
+        el.appendChild(line);
+      }
+      line.textContent = "$" + (d.usd || 0).toFixed(2) + " used in " + d.month
+        + " · " + (d.turns || 0) + " turn" + ((d.turns === 1) ? "" : "s")
+        + (d.over ? " · over budget, turns are refused"
+          : (d.enforced ? " · of $" + (d.cap || 0) : " · not enforced"));
+      line.style.color = d.over ? "var(--error)" : "var(--text)";
+    }).catch(function () { /* older server — leave the row as it is */ });
+  }
+  function loadMembers() {
+    return sapi("GET", "/api/members").then(function (d) { members = d.members || []; renderMembers(); })
+      .catch(function (e) { toast("bad", e.message); });
+  }
+
+  /* ---------- pending invites (admin) ----------
+     GET /api/invites + DELETE /api/invites/:token have existed server-side since
+     the invite feature shipped and had no UI at all, so a link handed out by
+     mistake could only be revoked by editing a JSON file on the box. */
+  var inviteList = document.getElementById("inviteList");
+  function roleLabel(r) { return String(r || "").toLowerCase() === "admin" ? "Admin" : "Member"; }
+  function loadInvites() {
+    if (!window._isAdmin) return Promise.resolve();
+    return sapi("GET", "/api/invites").then(function (d) {
+      var list = (d && d.invites) || [];
+      inviteList.innerHTML = "";
+      if (!list.length) {
+        inviteList.innerHTML = '<div class="empty-line">No invite links are waiting to be used.</div>';
+        return;
+      }
+      list.forEach(function (inv) {
+        var left = UI.relUntil(inv.expiresAt);
+        var soon = left && (left === "due now" || /^in \d+[mh]$/.test(left));
+        var row = document.createElement("div");
+        row.className = "invite";
+        row.innerHTML =
+          '<span class="inv-main">' +
+            '<div class="inv-name">' + esc(roleLabel(inv.role)) + ' invite</div>' +
+            '<div class="inv-sub">created ' + esc(UI.relTime(inv.createdAt) || "—") +
+              (inv.expiresAt ? ' · <span class="' + (soon ? "soon" : "") + '">expires ' + esc(left || "soon") + '</span>' : ' · no expiry') +
+            '</div>' +
+          '</span>' +
+          '<button class="btn btn-danger sm" type="button">Revoke</button>';
+        row.querySelector("button").addEventListener("click", function (e) {
+          var btn = e.currentTarget;
+          btn.disabled = true;
+          sapi("DELETE", "/api/invites/" + encodeURIComponent(inv.token))
+            .then(function () { toast("ok", "Invite revoked"); return loadInvites(); })
+            .catch(function (err) { btn.disabled = false; toast("bad", err.message); });
+        });
+        inviteList.appendChild(row);
+      });
+    }).catch(function (e) {
+      inviteList.innerHTML = '<div class="empty-line">Couldn\'t load invites — ' + esc(e.message) + '</div>';
+    });
+  }
+
+  /* ---------- sheets ---------- */
+  var overlay = document.getElementById("overlay");
+  var inviteSheetEl = document.getElementById("inviteSheet");
+  var memberSheetEl = document.getElementById("memberSheet");
+  var memberSheetBody = document.getElementById("memberSheetBody");
+  // Three sheets, one overlay. Each controller closes only its own sheet; a stray
+  // close on an already-closed sheet is a no-op, so sharing the overlay is safe.
+  var inviteSheet = UI.sheet(inviteSheetEl, overlay);
+  var memberSheet = UI.sheet(memberSheetEl, overlay);
+  // The cropper holds an object URL for the picked file; onClose is the one place
+  // that fires for ALL three ways out (button, overlay tap, Escape), so it is
+  // where the URL is released rather than in each handler.
+  var cropSheet = UI.sheet(document.getElementById("cropSheet"), overlay, { onClose: releaseCrop });
+  function closeSheets() { inviteSheet.close(); memberSheet.close(); cropSheet.close(); }
+  document.querySelectorAll("[data-close]").forEach(function (b) { b.addEventListener("click", closeSheets); });
+
+  var inviteForm = document.getElementById("inviteForm");
+  var inviteResult = document.getElementById("inviteResult");
+  var invLink = document.getElementById("invLink");
+  document.getElementById("inviteBtn").addEventListener("click", function () {
+    inviteForm.hidden = false; inviteResult.hidden = true; invLink.value = "";
+    inviteSheet.open();
+  });
+  document.getElementById("makeInvite").addEventListener("click", function () {
+    var role = document.getElementById("invRole").value;   // 'member' | 'admin'
+    var btn = document.getElementById("makeInvite"); btn.disabled = true;
+    sapi("POST", "/api/invites", { role: role })
+      .then(function (d) {
+        invLink.value = d.url || "";
+        inviteForm.hidden = true; inviteResult.hidden = false;
+        setTimeout(function () { try { invLink.focus(); invLink.select(); } catch (e) {} }, 60);
+        return Promise.all([loadMembers(), loadInvites()]);
+      })
+      .catch(function (e) { toast("bad", e.message); })
+      .then(function () { btn.disabled = false; });
+  });
+  document.getElementById("copyInvite").addEventListener("click", function () {
+    UI.copyText(invLink.value)
+      .then(function () { toast("ok", "Invite link copied"); })
+      .catch(function () { try { invLink.focus(); invLink.select(); } catch (e) {} toast("bad", "Press Ctrl/⌘-C to copy"); });
+  });
+
+  function openMember(m) {
+    var created = m.createdAt ? new Date(m.createdAt).toLocaleDateString() : "—";
+    var canRemove = window._isAdmin && !m.you && m.role !== "Owner";
+    // Only the owner may hand out power-off access, and never to another owner.
+    var canGrantPower = window._isOwner && m.role !== "Owner";
+    memberSheetBody.innerHTML =
+      '<div style="display:flex;align-items:center;gap:13px;margin-bottom:16px">' +
+        '<span class="avatar" style="width:48px;height:48px;border-radius: var(--r-md);font-size:15px">' + esc(m.initials) + '</span>' +
+        '<div style="min-width:0"><div style="font-size:17px;font-weight:650">' + esc(m.name) + (m.you ? ' <span style="color:var(--muted);font-weight:400">(you)</span>' : '') + '</div>' +
+          (maySeeEmail(m) ? '<div style="font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis">' + esc(m.email) + '</div>' : '') +
+        '</div>' +
+        '<span style="margin-left:auto">' + statusBadge(m.status || "active") + '</span>' +
+      '</div>' +
+      '<div class="panel pad" style="margin-bottom:14px">' +
+        '<div class="row" style="padding:2px 0"><div class="rmain"><div class="rlabel">Role</div></div><div class="rctl" style="color:var(--muted);font-size:13px">' + esc(m.role) + '</div></div>' +
+        '<div class="row" style="padding:2px 0"><div class="rmain"><div class="rlabel">Joined</div></div><div class="rctl" style="color:var(--muted);font-size:13px">' + esc(created) + '</div></div>' +
+        // Real figures at last — these were hard-coded zeros until server/spend.js
+        // metered anything, which is why the bars that used to show them were removed
+        // rather than left displaying a confident nothing.
+        '<div class="row" style="padding:2px 0"><div class="rmain"><div class="rlabel">This month</div><div class="rdesc">Estimated API-equivalent cost, not a bill.</div></div><div class="rctl" style="color:var(--muted);font-size:13px">' + esc((m.requests || 0) + " turns · $" + Number(m.cost || 0).toFixed(2)) + '</div></div>' +
+        (canGrantPower ? '<div class="row" style="padding:8px 0 2px"><div class="rmain"><div class="rlabel">Can restart the server &amp; power the PC</div><div class="rdesc">Adds the Restart server button to their side menu, plus server restart and PC restart / shut down under Security.</div></div><div class="rctl"><div class="switch' + (m.canPowerOff ? ' on' : '') + '" id="mPowerToggle" role="switch" tabindex="0" aria-checked="' + (m.canPowerOff ? 'true' : 'false') + '"></div></div></div>' : '') +
+      '</div>' +
+      '<div class="sheet-actions">' +
+        '<button class="btn btn-ghost" type="button" data-close>Close</button>' +
+        (canRemove ? '<button class="btn btn-danger" id="mRemove">Remove member</button>' : '') +
+      '</div>' +
+      (canRemove ? '<div class="hint-note">Removing revokes their access. Their project folder is kept on disk.</div>' : '');
+    setAvatarEl(memberSheetBody.querySelector(".avatar"), m.avatar, m.initials);
+    memberSheet.open();
+    memberSheetBody.querySelectorAll("[data-close]").forEach(function (b) { b.addEventListener("click", closeSheets); });
+    var mPower = document.getElementById("mPowerToggle");
+    if (mPower) mPower.addEventListener("click", function () {
+      var next = !mPower.classList.contains("on");
+      mPower.classList.toggle("on", next);
+      mPower.setAttribute("aria-checked", next ? "true" : "false");
+      sapi("PUT", "/api/members/" + m.id + "/poweroff", { allowed: next })
+        .then(function () {
+          m.canPowerOff = next;
+          toast("ok", next ? (m.name + " can now shut down the PC") : (m.name + " can no longer shut down the PC"));
+        })
+        .catch(function (e) {
+          mPower.classList.toggle("on", !next);
+          mPower.setAttribute("aria-checked", !next ? "true" : "false");
+          toast("bad", e.message);
+        });
+    });
+    var mRemove = document.getElementById("mRemove");
+    if (mRemove) mRemove.addEventListener("click", function () {
+      mRemove.disabled = true;
+      sapi("DELETE", "/api/members/" + m.id)
+        .then(function () { closeSheets(); toast("ok", "Member removed"); return loadMembers(); })
+        .catch(function (e) { mRemove.disabled = false; toast("bad", e.message); });
+    });
+  }
+
+  /* ================= Engine (owner only) =================
+     Contract: GET /api/engine/status | /whats-new | /log, POST /api/engine/update
+     (dryRun defaults TRUE server-side; a real update needs an explicit
+     dryRun:false), GET /api/engine/update/status for a long detached run.
+     Every one of those routes may not be deployed on this box yet — apiOptional
+     resolves to null on 404/405 so the card degrades to one honest line instead
+     of a panel of broken controls. See docs/ENGINE-UPDATES.md. */
+  var engPanel = document.getElementById("engPanel");
+  var engMeta = document.getElementById("engMeta");
+  var engTools = document.getElementById("engTools");
+  var engNews = document.getElementById("engNews");
+  var engLogBox = document.getElementById("engLogBox");
+  var engUpd = document.getElementById("engUpd");
+  var engUpdTitle = document.getElementById("engUpdTitle");
+  var engVerdict = document.getElementById("engVerdict");
+  var engApply = document.getElementById("engApply");
+  var engDry = document.getElementById("engDry");
+  var engTarget = document.getElementById("engTarget");
+  var engPruneWrap = document.getElementById("engPruneWrap");
+  var engPrune = document.getElementById("engPrune");
+  var engBusy = false;
+  var dryOk = "";     // the target a dry run just passed for ("" = none)
+
+  var I_SPIN = '<path d="M21 12a9 9 0 1 1-6.2-8.5"></path>';
+  function spinner() { return ic(I_SPIN, 14).replace("<svg", '<svg class="ui-spin"'); }
+  function engUnavailable(why) {
+    engPanel.innerHTML = '<div class="empty-line">' + esc(why || "Engine updates aren't available on this server yet.") + '</div>';
+    engMeta.textContent = "";
+    engTools.hidden = true; engUpd.hidden = true; engUpdTitle.hidden = true;
+  }
+  // 404/405 → not deployed. 403 → this build gates the routes more tightly than
+  // the UI does. Both are "not available", not "broken".
+  function engFail(e) {
+    if (e && e.status === 403) return engUnavailable("Engine updates are restricted on this server.");
+    engUnavailable("Couldn't reach the engine — " + ((e && e.message) || "unknown error"));
+  }
+
+  function behindTxt(behind, installed, latest) {
+    if (behind === 0) return { txt: "up to date", cls: "ok" };
+    if (typeof behind === "number" && behind > 0) return { txt: behind + " release" + (behind === 1 ? "" : "s") + " behind", cls: "behind" };
+    if (installed && latest && installed !== latest) return { txt: "update available", cls: "behind" };
+    if (!latest) return { txt: "couldn't reach npm", cls: "" };
+    return { txt: "up to date", cls: "ok" };
+  }
+  function engRow(label, desc, e) {
+    var b = behindTxt(e.behind, e.installed, e.latest);
+    return '<div class="row"><div class="rmain">' +
+      '<div class="rlabel">' + esc(label) + '</div><div class="rdesc">' + desc + '</div></div>' +
+      '<div class="rctl"><div class="eng-ver">' + esc(e.installed || "unknown") + '</div>' +
+      '<div class="eng-sub ' + b.cls + '">' + (e.latest ? "latest " + esc(e.latest) + " · " : "") + esc(b.txt) + '</div></div></div>';
+  }
+  function renderEngine(s) {
+    var sdkDesc = "Every chat turn spawns this. Bundles its own CLI"
+      + (s.sdk && s.sdk.bundledCli ? " (" + esc(s.sdk.bundledCli) + ")" : "") + ".";
+    var cliDesc = "The owner terminal and <code>/design-sync</code>"
+      + (s.cli && s.cli.stable && s.cli.stable !== s.cli.latest ? " · stable channel " + esc(s.cli.stable) : "") + ".";
+    engPanel.innerHTML =
+      engRow("Chat engine · Agent SDK", sdkDesc, s.sdk || {}) +
+      engRow("Terminal CLI · claude", cliDesc, s.cli || {});
+    var stale = (s.sdk && s.sdk.changelog && s.sdk.changelog.stale) || (s.cli && s.cli.changelog && s.cli.changelog.stale);
+    engMeta.innerHTML = "Node " + esc(s.node || "?") + " · checked " + esc(UI.relTime(s.checkedAt) || "just now")
+      + (stale ? " · <b>changelogs served from the offline cache</b>" : "")
+      + (s.updateAvailable ? " · an update is available" : "");
+    engTools.hidden = false;
+    engUpd.hidden = false; engUpdTitle.hidden = false;
+    var devRepo = document.getElementById("engDevRepo");
+    if (devRepo) devRepo.textContent = (s.paths && s.paths.devRepo) || "the dev repo";
+  }
+  function loadEngine(refresh) {
+    return UI.apiOptional("GET", "/api/engine/status" + (refresh ? "?refresh=1" : ""))
+      .then(function (s) {
+        if (!s) { engUnavailable(); return null; }
+        renderEngine(s);
+        return s;
+      })
+      .catch(function (e) { engFail(e); return null; });
+  }
+
+  // Changelog sections, rendered as plain text. `notes` are markdown bullets from
+  // the upstream CHANGELOG; they are shown escaped, not parsed — a release note
+  // is not a place to start executing other people's markup.
+  function newsBlock(title, sections, since, cachedAt, stale) {
+    var h = '<div class="block-title" style="margin-top:16px">' + esc(title) + '</div><div class="panel pad">';
+    if (!sections || !sections.length) {
+      h += '<div class="empty-line">Nothing new since ' + esc(since || "your version") + '.</div>';
+    } else {
+      sections.forEach(function (sec) {
+        h += '<div class="eng-rel"><h4>' + esc(sec.version) + '</h4><ul>' +
+          (sec.notes || []).map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("") + '</ul></div>';
+      });
+    }
+    var age = cachedAt ? UI.relTime(cachedAt) : "";
+    if (age || stale) {
+      h += '<div class="hint-note">' + (stale
+        ? "Offline — this is the cached changelog" + (age ? " from " + esc(age) : "") + ", so it may be missing the newest releases."
+        : "Changelog fetched " + esc(age) + ".") + '</div>';
+    }
+    return h + '</div>';
+  }
+  document.getElementById("engNewsBtn").addEventListener("click", function () {
+    if (!engNews.hidden) { engNews.hidden = true; return; }
+    engLogBox.hidden = true;
+    engNews.innerHTML = '<div class="empty-line">Loading changelogs…</div>';
+    engNews.hidden = false;
+    UI.apiOptional("GET", "/api/engine/whats-new").then(function (d) {
+      if (!d) { engNews.innerHTML = '<div class="empty-line">Not available on this server yet.</div>'; return; }
+      var since = d.since || {}, at = d.cachedAt || {}, st = d.stale || {};
+      engNews.innerHTML =
+        newsBlock("Chat engine — new since " + (since.sdk || "your version"), d.sdk, since.sdk, at.sdk, st.sdk) +
+        newsBlock("Terminal CLI — new since " + (since.cli || "your version"), d.cli, since.cli, at.cli, st.cli);
+    }).catch(function (e) {
+      engNews.innerHTML = '<div class="empty-line">Couldn\'t load the changelogs — ' + esc(e.message) + '</div>';
+    });
+  });
+
+  document.getElementById("engLogBtn").addEventListener("click", function () {
+    if (!engLogBox.hidden) { engLogBox.hidden = true; return; }
+    engNews.hidden = true;
+    engLogBox.innerHTML = '<div class="empty-line">Loading…</div>';
+    engLogBox.hidden = false;
+    UI.apiOptional("GET", "/api/engine/log").then(function (d) {
+      if (!d) { engLogBox.innerHTML = '<div class="empty-line">Not available on this server yet.</div>'; return; }
+      var list = (d && (d.log || d.entries || d.updates)) || (Array.isArray(d) ? d : []);
+      if (!list.length) { engLogBox.innerHTML = '<div class="block-title" style="margin-top:16px">Update history</div><div class="panel pad"><div class="empty-line">No engine update has been attempted yet.</div></div>'; return; }
+      var h = '<div class="block-title" style="margin-top:16px">Update history</div><div class="panel pad">';
+      list.forEach(function (r) {
+        var what = (r.target || "engine") + (r.version ? " → " + r.version : "") + (r.dryRun ? " (dry run)" : "");
+        var msg = r.error || r.note || (r.ok ? "ok" : "failed");
+        h += '<div class="eng-log-row' + (r.ok ? "" : " bad") + '"><span class="lt">' + esc(UI.relTime(r.at) || "") +
+          '</span><span class="lm"><b>' + esc(what) + '</b> — ' + esc(msg) + '</span></div>';
+      });
+      engLogBox.innerHTML = h + '</div>';
+    }).catch(function (e) {
+      engLogBox.innerHTML = '<div class="empty-line">Couldn\'t load the history — ' + esc(e.message) + '</div>';
+    });
+  });
+
+  document.getElementById("engCheck").addEventListener("click", function () {
+    var b = document.getElementById("engCheck");
+    b.disabled = true; b.textContent = "Checking…";
+    loadEngine(true).then(function () { b.disabled = false; b.textContent = "Check now"; });
+  });
+
+  // Reset the two-step gate whenever the target changes: a dry run proves ONE
+  // target, and letting its green tick authorise a different one is exactly the
+  // kind of slip this flow exists to prevent.
+  engTarget.addEventListener("change", function () {
+    dryOk = "";
+    engApply.hidden = true;
+    engVerdict.hidden = true;
+    engPruneWrap.hidden = true;
+  });
+
+  function part(name, v) {
+    if (!v) return "";
+    if (v.skipped) return "<li>" + esc(name) + ": " + esc(v.note || "already up to date") + "</li>";
+    var bits = [];
+    // The SDK half reports from→to; the CLI half reports before→after, and on a
+    // dry run there is no "after" yet, only the version it WOULD install.
+    if (v.from || v.to) bits.push(esc(v.from || "?") + " → " + esc(v.to || "?"));
+    else if (v.before || v.after || v.target) bits.push(esc(v.before || "?") + " → " + esc(v.after || v.target || "?"));
+    if (v.canary) bits.push(v.canary.ok ? "canary replied OK" : "canary FAILED" + (v.canary.error ? ": " + esc(v.canary.error) : ""));
+    if (v.options && v.options.ok === false) bits.push("drops options PlumiChat passes: <code>" + esc((v.options.lost || []).join(", ")) + "</code>");
+    else if (v.options && v.options.ok) bits.push("options PlumiChat passes all still exist");
+    if (v.options && (v.options.alreadyMissing || []).length) bits.push("already ignored today: <code>" + esc(v.options.alreadyMissing.join(", ")) + "</code>");
+    if (v.reclaimable) bits.push(UI.fmtBytes(v.reclaimable) + " of old CLI versions could be reclaimed");
+    if (v.written) bits.push("wrote <code>" + esc(v.written.join(", ")) + "</code>");
+    if (v.error) bits.push("<b>" + esc(v.error) + "</b>");
+    if (v.note) bits.push(esc(v.note));
+    if (!bits.length) bits.push(v.ok ? "ok" : "no detail");
+    return "<li>" + esc(name) + ": " + bits.join(" · ") + "</li>";
+  }
+  function renderVerdict(res, wasDry) {
+    var v = (res && res.verdict) || {};
+    var ok = !!(res && res.ok);
+    engVerdict.className = "eng-verdict " + (ok ? "pass" : "fail");
+    engVerdict.hidden = false;
+    var head = wasDry
+      ? (ok ? "Dry run passed — nothing was changed" : "Dry run failed — nothing was changed")
+      : (ok ? "Update written" : "Update failed");
+    var body = "<ul>" + part("Chat engine", v.sdk) + part("Terminal CLI", v.cli) + part("Dev repo", v.promote) + "</ul>";
+    if (res && res.error) body += "<ul><li>" + esc(res.error) + "</li></ul>";
+    if (res && res.note) body += '<div class="hint-note">' + esc(res.note) + '</div>';
+    if (ok && !wasDry) {
+      body += '<div class="hint-note"><b>Not live yet.</b> Commit and push this repo, pull on the live clone, then restart the server — nothing here restarted anything.</div>';
+    }
+    engVerdict.innerHTML = '<div class="v-head">' + ic(ok ? UI.icons.check : UI.icons.x, 16) + esc(head) + '</div>' + body;
+
+    // Offer the prune only when the server said there is something to reclaim.
+    var reclaim = (v.cli && v.cli.reclaimable) || 0;
+    engPruneWrap.hidden = !(reclaim > 0);
+    if (reclaim > 0) document.getElementById("engPruneLabel").textContent =
+      "Also delete the old CLI versions (" + UI.fmtBytes(reclaim) + " on disk)";
+
+    if (wasDry && ok) { dryOk = engTarget.value; engApply.hidden = false; }
+    else { dryOk = ""; engApply.hidden = true; }
+  }
+  function engWorking(msg) {
+    engVerdict.className = "eng-verdict busy";
+    engVerdict.hidden = false;
+    engVerdict.innerHTML = '<div class="v-head">' + spinner() + esc(msg) + '</div>' +
+      '<div class="hint-note">A canary turn is a real Haiku request in a separate process — it can take a minute or two.</div>';
+  }
+  // A long update may run detached: the POST returns immediately and the result
+  // arrives via GET /api/engine/update/status. Treat "no verdict and no error"
+  // as "still working" and poll, but stop cleanly if that route isn't there.
+  function pendingShape(d) {
+    if (!d) return false;
+    if (d.verdict || d.error) return false;
+    return !!(d.started || d.running || d.pending || d.jobId || d.detached);
+  }
+  function pollUpdate(wasDry, tries) {
+    tries = tries || 0;
+    if (tries > 240) { engVerdict.innerHTML = '<div class="v-head">Still running — reopen this page later for the result.</div>'; engBusy = false; setEngButtons(false); return; }
+    setTimeout(function () {
+      UI.apiOptional("GET", "/api/engine/update/status").then(function (d) {
+        if (!d) {
+          engVerdict.className = "eng-verdict busy";
+          engVerdict.innerHTML = '<div class="v-head">Update is running in the background</div>' +
+            '<div class="hint-note">This server has no progress endpoint — check <b>Update history</b> in a minute.</div>';
+          engBusy = false; setEngButtons(false);
+          return;
+        }
+        if (d.running || d.pending) {
+          engWorking(String(d.step || d.progress || d.status || "Working…"));
+          pollUpdate(wasDry, tries + 1);
+          return;
+        }
+        renderVerdict(d.result || d, wasDry);
+        engBusy = false; setEngButtons(false);
+      }).catch(function (e) {
+        engVerdict.className = "eng-verdict fail";
+        engVerdict.innerHTML = '<div class="v-head">Lost track of the update — ' + esc(e.message) + '</div>';
+        engBusy = false; setEngButtons(false);
+      });
+    }, 2000);
+  }
+  function setEngButtons(busy) {
+    engDry.disabled = busy;
+    engApply.disabled = busy;
+    engTarget.disabled = busy;
+    engDry.textContent = busy ? "Working…" : "Step 1 — dry run (installs nothing here)";
+  }
+  function runUpdate(dry) {
+    if (engBusy) return;
+    engBusy = true; setEngButtons(true);
+    engWorking(dry ? "Staging the install and running the canary…" : "Applying the update…");
+    var body = { target: engTarget.value, dryRun: !!dry };
+    if (!dry && engPrune && !engPruneWrap.hidden && engPrune.checked) body.prune = true;
+    UI.apiOptional("POST", "/api/engine/update", body).then(function (d) {
+      if (!d) { engUnavailable(); engBusy = false; return; }
+      if (pendingShape(d)) { pollUpdate(dry, 0); return; }
+      renderVerdict(d, dry);
+      engBusy = false; setEngButtons(false);
+    }).catch(function (e) {
+      engVerdict.className = "eng-verdict fail";
+      engVerdict.hidden = false;
+      engVerdict.innerHTML = '<div class="v-head">' + ic(UI.icons.x, 16) + esc(e.message) + '</div>';
+      dryOk = ""; engApply.hidden = true;
+      engBusy = false; setEngButtons(false);
+    });
+  }
+  engDry.addEventListener("click", function () { runUpdate(true); });
+  engApply.addEventListener("click", function () {
+    // The gate: a real update is only ever reachable from a dry run that passed
+    // for THIS target. dryRun:false is sent explicitly, exactly once, here.
+    if (dryOk !== engTarget.value) { toast("bad", "Run the dry run first"); return; }
+    if (!window.confirm(
+      "Write the version bump now?\n\n" +
+      "This updates package.json in the DEV repo (and installs the terminal CLI in place, if that's the target).\n\n" +
+      "Nothing restarts. The chat engine keeps running the version it already loaded until you commit, push, pull on the live clone and restart the server yourself."
+    )) return;
+    runUpdate(false);
+  });
+
+  /* ---------- boot ----------
+     The profile decides which sections exist, so it goes first; everything that
+     depends on the role (members' emails, invites, engine) follows it. */
+  sapi("GET", "/api/settings/profile")
+    .then(applyProfile)
+    .catch(function () { /* unauthenticated is handled by ui.js's 401 redirect */ })
+    .then(function () {
+      loadMembers();
+      if (window._isAdmin) { loadInvites(); loadWorkspaceAndModels(); }
+      if (window._isOwner) loadEngine(false);
+    });
+})();
+</script>
+</body>
+</html>

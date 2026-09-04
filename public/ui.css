@@ -1,0 +1,223 @@
+/* PlumiChat shared UI stylesheet — settings.html, operations.html, grid.html.
+   ------------------------------------------------------------------------
+   These three pages were each ported from a design tool and shipped with their
+   own copy of the design tokens, the button set, the sheet/overlay animation and
+   the toast styles. Four copies of the same rules drifted (one toast escaped its
+   text, one did not; the light theme was pasted three times). This file is the
+   single copy.
+
+   RULES OF THE ROAD:
+   - ADDITIVE AND STANDALONE. public/style.css belongs to the chat app; nothing
+     here may depend on it or override it. grid.html loads BOTH, so every class
+     defined here is either absent from style.css or deliberately prefixed `ui-`.
+   - Page-specific styling stays inline in each page. This file holds only what
+     all three genuinely share.
+   - Metrics that legitimately differ per page (settings has roomier 40px
+     controls than operations' compact 36px ones) are variables, not forks — see
+     the button block. */
+
+/* ---------- design tokens ----------
+   Owned by public/plume.css, which these three pages load FIRST. Nothing here
+   may redeclare them: four copies of the palette is exactly what this file was
+   created to end, and plume.css is now the single copy for the whole product.
+   The button metrics below stay here — they are UI knobs, not palette. */
+:root {
+  /* Button metrics — see .btn below. */
+  --btn-h: 36px;
+  --btn-r: var(--r-md);
+  --btn-px: 14px;
+  --btn-fs: 13.5px;
+  --btn-fw: 600;
+}
+
+/* ---------- buttons ----------
+   One rule set, five knobs. Settings wants 40px/11px-radius controls and
+   Operations wants 36px/10px ones; forking the whole block for that was how the
+   copies drifted in the first place. A page overrides the variables on <body>. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--btn-h); padding: 0 var(--btn-px);
+  border-radius: var(--btn-r); border: 1px solid var(--line-strong);
+  background: var(--surface-2); color: var(--text);
+  font-family: inherit; font-size: var(--btn-fs); font-weight: var(--btn-fw);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.12s ease;
+}
+.btn:hover { background: var(--surface-3); }
+.btn:active { transform: translateY(0.5px); }
+.btn:disabled { opacity: 0.55; cursor: default; }
+.btn svg { flex: none; }
+.btn-primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+.btn-ghost { background: transparent; color: var(--muted); }
+.btn-ghost:hover { color: var(--text); background: var(--surface-2); }
+.btn-danger { background: transparent; border-color: var(--error-line); color: var(--error); }
+.btn-danger:hover { background: var(--error-dim); }
+.btn.sm { height: 34px; padding: 0 12px; font-size: 12.5px; }
+.btn.full { width: 100%; }
+.btn.grow { flex: 1; }
+
+/* ---------- sheet + overlay ----------
+   The bottom-sheet behaviour only. Size, position and the desktop "centered
+   modal" variant differ per page and stay inline there.
+
+   `.settled` is the trick both pages independently invented: once the open (or
+   close) transition has finished, transitions are switched OFF, so a later
+   layout change — an iOS keyboard opening, a rotate, a re-render behind the
+   sheet — cannot animate the sheet around. PlumiUI.sheet() drives it. */
+.ui-overlay {
+  position: absolute; inset: 0;
+  background: rgba(4, 5, 7, 0.55);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.24s ease;
+  z-index: 50;
+}
+.ui-overlay.open { opacity: 1; pointer-events: auto; }
+.ui-overlay.settled { transition: none; }
+
+.ui-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: var(--panel-bg);
+  border-top: 1px solid var(--line-strong);
+  border-radius: var(--r-win) var(--r-win) 0 0;
+  padding: 8px 16px calc(18px + env(safe-area-inset-bottom));
+  transform: translateY(101%);
+  /* visibility is delayed by the length of the slide so CLOSING still animates —
+     an undelayed flip would make the sheet vanish mid-slide on a phone. It is
+     instant on open (see .ui-sheet.open). */
+  transition: transform 0.28s cubic-bezier(0.22, 0.7, 0.2, 1), visibility 0s linear 0.28s;
+  z-index: 51;
+  max-height: 92dvh; overflow-y: auto;
+  /* A CLOSED sheet must not be clickable. Parked below the fold on a phone that
+     never mattered, but every page turns this into a CENTRED modal on desktop
+     (translate(-50%,-44%) + opacity:0), which leaves an invisible, fully
+     hit-testable panel sitting over the middle of the page at z-index 51 —
+     swallowing every click on whatever is behind it. That is what made the
+     Appearance palette and swatches unselectable on a computer while the theme
+     buttons above the sheet still worked.
+     visibility also keeps it out of the tab order and off a screen reader; it
+     flips to visible on .open, so the transform still animates. */
+  pointer-events: none;
+  visibility: hidden;
+}
+.ui-sheet.open {
+  transform: none; pointer-events: auto; visibility: visible;
+  transition: transform 0.28s cubic-bezier(0.22, 0.7, 0.2, 1), visibility 0s;
+}
+.ui-sheet.settled { transition: none; }
+.ui-grip { width: 38px; height: 4px; border-radius: var(--r-sm); background: var(--surface-3); margin: 4px auto 14px; }
+
+/* ---------- toasts ----------
+   Prefixed because public/style.css already defines a DIFFERENT `.toast` for the
+   chat app, and grid.html loads both stylesheets. PlumiUI.toast() creates the
+   container on demand, so a page needs no markup for this. */
+.ui-toasts {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 0 14px calc(16px + env(safe-area-inset-bottom));
+  z-index: 60; pointer-events: none;
+}
+.ui-toast {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 9px;
+  max-width: 100%;
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-size: 13px; color: var(--text);
+  box-shadow: var(--shadow-win);
+}
+.ui-toast.enter { animation: ui-toast-in 0.22s ease both; }
+.ui-toast.out { animation: ui-toast-out 0.24s ease forwards; }
+@keyframes ui-toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes ui-toast-out { to { opacity: 0; transform: translateY(10px); } }
+.ui-toast .ic { flex: none; display: grid; place-items: center; }
+.ui-toast.ok .ic { color: var(--green); }
+.ui-toast.bad .ic { color: var(--error); }
+.ui-toast.info .ic { color: var(--accent-text); }
+
+/* A fixed-position variant for a page whose root is not `position: relative`
+   (grid.html's board fills the viewport and has no positioned app shell). */
+.ui-toasts.fixed { position: fixed; }
+
+/* ---------- spinner ----------
+   Operations spins while a task verifies/ships; Settings spins while the engine
+   canary runs. Same three lines twice was how the rest of this file started, so
+   it lives here. Apply to an inline SVG: PlumiUI.ic(path).replace('<svg', '<svg
+   class="ui-spin"'). Honours the OS reduce-motion switch — a permanent spin is
+   exactly the animation people turn that setting on for. */
+.ui-spin { animation: ui-spin 0.9s linear infinite; flex: none; }
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ui-spin { animation-duration: 2.4s; } }
+
+/* ════════════════════════════════════════════════════════════════════════
+   PLUME — the shared chrome, in the Plume design system.
+   Appended for the same reason as the block at the end of style.css: same
+   specificity, later wins, and every original rule keeps its own context.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ---------- buttons ----------
+   A Plume button is a sharp 1px rectangle sitting on a hard 2px offset shadow,
+   and pressing it moves the button ONTO the shadow — the whole control travels
+   two pixels down-right and the shadow disappears. That is the entire press
+   animation, and it is the reason nothing here uses a blur. */
+.btn {
+  border-radius: var(--r-md);
+  border-color: var(--line-strong);
+  background: var(--surface);
+  font-family: var(--sans);
+  box-shadow: var(--shadow-sm);
+  transition: background var(--dur-fast) linear, border-color var(--dur-fast) linear,
+              box-shadow var(--dur-fast) linear, transform var(--dur-fast) linear;
+}
+.btn:hover { background: var(--surface-2); border-color: var(--border, var(--line-strong)); }
+.btn:not(:disabled):active { transform: translate(2px, 2px); box-shadow: none; }
+.btn:disabled { box-shadow: none; opacity: 0.5; }
+.btn-primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.btn-primary:hover { background: var(--accent); filter: brightness(1.06); }
+.btn-ghost { background: transparent; box-shadow: none; border-color: transparent; }
+.btn-ghost:hover { background: var(--surface-2); border-color: var(--line); }
+.btn-danger { color: var(--error); border-color: var(--error-line); background: transparent; }
+
+/* ---------- sheets, as windows ----------
+   Same signature as the chat app's: rounded at the top, square at the foot,
+   dragged by a striped bar. The grip doubles as the drag stripes on a phone,
+   where there is no title bar to strike through. */
+.ui-sheet {
+  border-radius: var(--r-win) var(--r-win) 0 0;
+  border-top: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-win);
+}
+.ui-grip {
+  width: 46px; height: 9px;
+  border-radius: 0;
+  background: repeating-linear-gradient(to bottom, var(--line-strong) 0 1px, transparent 1px 3px);
+  margin: 7px auto 14px;
+}
+.ui-overlay { background: rgba(10, 8, 6, 0.62); }
+
+/* ---------- toasts ----------
+   A toast is a small window that arrives and leaves; it gets the hard shadow
+   rather than the soft one, so it reads as a physical card dropped on the page. */
+.ui-toast {
+  border-radius: var(--r-md);
+  border-color: var(--line-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  font-family: var(--sans);
+}
+.ui-toast.ok .ic { color: var(--green); }
+.ui-toast.bad .ic { color: var(--error); }
+.ui-toast.info .ic { color: var(--accent-text); }
+
+/* ---------- shared page chrome ----------
+   Both secondary pages set their own titles and eyebrows; these two rules are
+   what make them read as the same product as the chat app. */
+.pl-page-title { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.01em; }
+.pl-label {
+  font-family: var(--font-label);
+  font-size: 10px; font-weight: 400;
+  letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--faint);
+}
