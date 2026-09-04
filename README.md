@@ -141,9 +141,10 @@ startup and at `GET /api/capabilities`. Nothing fails at the moment you tap it.
 > **Windows has no sandbox PlumiChat can confine a member with**, so member turns
 > are refused there rather than run unconfined. Run Windows installs as owner-only.
 
-> **Tested on Linux** (including WSL2). The macOS and Windows paths are isolated in
-> `server/platform.js` and written against each platform's documented behaviour, but
-> have not been verified on real hardware. Issues welcome.
+> **Verified on Linux (including WSL2) and macOS.** The Windows paths are isolated
+> in `server/platform.js` and written against documented behaviour, but have not
+> been run on real hardware yet — if you try it, an issue with your startup banner
+> is genuinely useful.
 
 ## Architecture
 

@@ -39,7 +39,7 @@ import { engineStatus, whatsNew, updateLog, applyUpdate, DEV_REPO } from './engi
 // `subscribe` is already taken by runs.js above, so the push ones are aliased —
 // the two subscription ideas (SSE run streams vs Web Push devices) must not blur.
 import { pushStatus, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from './push.js';
-import { powerCommand, platformLabel } from './platform.js';
+import { powerCommand, platformLabel, resetTempEnv } from './platform.js';
 import { capabilities, unavailableSummary } from './capabilities.js';
 import {
   issueSession, sessionCookie, clearedCookie, SESSION_COOKIE, sessionPayload,
@@ -81,7 +81,8 @@ for (const key of [
   'CLAUDE_CODE_TMPDIR', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_AGENT_SDK_VERSION',
   'CLAUDE_EFFORT', 'TMPPREFIX', 'TMP', 'TEMP',
 ]) delete process.env[key];
-process.env.TMPDIR = '/tmp';
+// Restore a real temp dir on whichever variable this OS reads — see platform.js.
+resetTempEnv(process.env);
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));

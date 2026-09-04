@@ -4,11 +4,10 @@ Works on **Linux**, **macOS** and **Windows**. Only Node 22+ and the Anthropic A
 SDK are required; everything else is optional and PlumiChat tells you at startup
 what it could not find.
 
-> **Platform support, honestly:** development and testing happen on Linux (including
-> WSL2). The macOS and Windows paths are written against each platform's documented
-> behaviour and isolated in `server/platform.js`, but they have **not** been verified
-> on real hardware. If you hit something, an issue with the output of the startup
-> banner is genuinely useful.
+> **Platform support, honestly:** verified on Linux (including WSL2) and on macOS
+> (Apple silicon, Node 22). Windows is written against documented behaviour and
+> isolated in `server/platform.js`, but has **not** been run on real hardware. If you
+> hit something, an issue with the output of the startup banner is genuinely useful.
 
 ---
 
@@ -104,13 +103,16 @@ member turns refuse to run rather than run unconfined — see
 
 ### macOS
 
-Chat, files, exports, notifications, the terminal and Operations all work.
+Verified end to end: clone, install, boot, create the owner account, use it.
 
-- **Member confinement** uses the built-in seatbelt sandbox (`/usr/bin/sandbox-exec`).
-  No install needed.
-- Install tools with Homebrew: `brew install pandoc tmux`.
+- **Member confinement works out of the box** — the built-in seatbelt sandbox
+  (`/usr/bin/sandbox-exec`) is detected automatically, nothing to install.
+- Listening-socket discovery for **Sites** uses `lsof`, which macOS ships.
+- A clean Mac has no `pandoc` and no `tmux`, so document export and terminal
+  persistence report themselves unavailable until you add them:
+  `brew install pandoc tmux`.
 - `shutdown` needs privileges, so the machine power controls will report a failure
-  unless you have arranged for that. This does not affect anything else.
+  unless you have arranged for that. Nothing else is affected.
 
 ### Windows
 

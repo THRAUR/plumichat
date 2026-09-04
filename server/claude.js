@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { PLUMI_SYSTEM_PROMPT } from './system-prompt.js';
 import { WORKSPACES_ROOT } from './sandbox.js';
-import { sandboxKind } from './platform.js';
+import { sandboxKind, resetTempEnv } from './platform.js';
 import { skillIds } from './skills.js';
 import { getWorkspace } from './settings.js';
 
@@ -104,7 +104,7 @@ export function scrubbedEnv() {
   const env = { ...process.env };
   for (const k of SECRET_ENV) delete env[k];
   for (const k of INHERITED_CLAUDE_ENV) delete env[k];
-  env.TMPDIR = '/tmp'; // undo a parent Claude session's /tmp/claude-<uid> override
+  resetTempEnv(env); // undo a parent Claude session's /tmp/claude-<uid> override
   return env;
 }
 

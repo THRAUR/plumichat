@@ -33,6 +33,7 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { resetTempEnv } from './platform.js';
 import { read, update, DATA_DIR } from './store.js';
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -486,7 +487,7 @@ function scrubbedEnv() {
   const env = { ...process.env };
   for (const k of SECRET_ENV) delete env[k];
   for (const k of INHERITED_CLAUDE_ENV) delete env[k];
-  env.TMPDIR = '/tmp';
+  resetTempEnv(env);
   return env;
 }
 

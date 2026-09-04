@@ -244,6 +244,21 @@ export function tmpRoot() {
   try { fs.accessSync(dir, fs.constants.W_OK); return dir; } catch { return IS_WINDOWS ? 'C:\\Windows\\Temp' : '/tmp'; }
 }
 
+// Point an environment at a REAL temp directory, using the variable the platform
+// actually reads. Call this AFTER scrubbing an inherited TMPDIR/TMP/TEMP: os.tmpdir()
+// consults those same variables, so once they are gone it returns the OS default
+// rather than the dead /tmp/claude-<uid> a parent session left behind.
+//
+// The Windows branch is not cosmetic. TMP and TEMP *are* Windows' temp variables,
+// so a scrub that deletes them and then sets only TMPDIR leaves every child process
+// with no usable temp configuration at all.
+export function resetTempEnv(env) {
+  const dir = tmpRoot();
+  if (IS_WINDOWS) { env.TMP = dir; env.TEMP = dir; }
+  else env.TMPDIR = dir;
+  return env;
+}
+
 export function hasPm2() { return !!which('pm2'); }
 export function hasGit() { return !!which('git'); }
 export function hasTailscale() { return !!which('tailscale'); }
