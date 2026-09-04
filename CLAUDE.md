@@ -19,6 +19,31 @@ server process. Two consequences:
 - Changes to `server/*.js` need a restart to take effect. Changes under `public/`
   are live on a browser reload.
 
+## This repo is the portable half of a pair
+
+PlumiChat is developed against one maintainer's machine and released here. The two
+share every feature and every fix; what this repo does differently is exactly what
+makes it installable by someone else. Keep that property — it is the whole point of
+this copy existing.
+
+- **No personal name anywhere.** The product is *PlumiChat* in prose and `PLUMI_` in
+  identifiers: `window.PLUMI_*`, the `plumi-turn-done` push tag, `plumi.pref.` keys,
+  `PLUMI_*` environment variables. If you are porting a patch in, translate rather
+  than paste — one name does not map to one other name.
+- **Nothing may assume a particular machine.** No absolute paths belonging to a
+  person, no "the slow disk" in a comment, and anything machine-specific defaults
+  OFF: the two-copy deploy in `server/engine-ship.js` is inert unless
+  `PLUMI_LIVE_CLONE` is set, and `server/push.js` falls back to a neutral contact.
+- **A missing tool is a hidden feature, never a crash.** `server/platform.js`
+  abstracts the OS and `server/capabilities.js` + `public/js/capabilities.js` gate
+  the UI on what this box can actually do. `node-pty` is optional; a machine that
+  cannot build it loses the terminal panel and nothing else. New code that shells
+  out to something belongs behind a capability, and the startup banner should be
+  able to say why it is unavailable.
+- **This copy is ahead in places, deliberately.** It uses `--env-file-if-exists`, so
+  there is no missing-`.env` failure, and macOS member confinement runs on the
+  built-in seatbelt sandbox. Do not "fix" those back toward a simpler version.
+
 ## Verify like this
 
 `node --check` is a **syntax** gate only — a missing import passes it. The real

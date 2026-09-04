@@ -771,7 +771,6 @@ export function stopCurrent() {
   }).catch(function (e) { toast(e.message || "Stop failed", true); });
 }
 
-// Centered notice shown when a turn stops/errors, with a one-click Continue.
 /* The offer to carry on when the usage window reopens.
 
    The whole point is that the person is about to stop watching, so the card
@@ -834,6 +833,7 @@ export function addResumeOffer(key, ev) {
   scrollDown(false);
 }
 
+// Centered notice shown when a turn stops/errors, with a one-click Continue.
 export function addStopNotice(project, key, ended) {
   var n = document.createElement("div");
   n.className = "notice stop";

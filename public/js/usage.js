@@ -62,10 +62,6 @@ export function renderUsageChip() {
   if (!usageChip) return;
   var running = !!activeStreams[viewKey] || !!reattachTries[viewKey];
   var tone = limitTone(limitsState);
-  // Show it whenever we know ANYTHING about the window. The old condition was
-  // (running || warning tone), so the chip vanished between turns and on a cold
-  // load — which read as the feature being broken rather than idle. Only a client
-  // that has genuinely never heard a usage figure hides it now.
   // Quiet unless it has something to say. This chip is a full-width rail directly
   // above the composer, so an always-on version parks "5-hour window" under every
   // answer — at 27% of the window that is three words of furniture reporting no
