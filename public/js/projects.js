@@ -39,7 +39,14 @@ export function renderMenu() {
   var add = document.createElement("button");
   add.className = "picker-item picker-new";
   add.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg><span>New project…</span>';
-  add.addEventListener("click", showNewProjectForm);
+  // stopPropagation is load-bearing, not defensive. showNewProjectForm() replaces
+  // pickerMenu's contents synchronously, which DETACHES this very button from the
+  // document. The click then bubbles to the global dismiss handler, whose test is
+  // `picker.contains(e.target)` — and a detached node is contained by nothing, so
+  // it read as a click outside the picker and closed the menu. The form was still
+  // there underneath, which is why a second click on the picker appeared to "work":
+  // it was just re-opening a menu that had already become the form.
+  add.addEventListener("click", function (e) { e.stopPropagation(); showNewProjectForm(); });
   pickerMenu.appendChild(add);
   var nw = document.createElement("button");
   nw.className = "picker-item picker-new";
@@ -68,7 +75,7 @@ export function showNewProjectForm() {
     createProject(name).catch(function (e) { fail(e.message || "Could not create project"); });
   }
   create.addEventListener("click", submit);
-  cancel.addEventListener("click", renderMenu);
+  cancel.addEventListener("click", function (e) { e.stopPropagation(); renderMenu(); }); // same detach trap as above
   inp.addEventListener("keydown", function (e) {
     if (e.key === "Enter") { e.preventDefault(); submit(); }
     else if (e.key === "Escape") { e.stopPropagation(); renderMenu(); }

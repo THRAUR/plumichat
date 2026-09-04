@@ -4,6 +4,7 @@
    running on the server. */
 
 import { apiFetch } from './api.js';
+import { showFirstRun } from './onboarding.js';
 import { updateSend } from './composer.js';
 import { EMBED, NEW_CHAT, PANE, SEED_CONV, SEED_PROJECT, clearSeedConv, pref, toast } from './dom.js';
 import { goToConversation, refreshLibrary, updateTopbarTitle } from './library.js';
@@ -32,7 +33,17 @@ export function stripSeedParams() {
 export function loadProjects(isRefresh) {
   apiFetch("/api/projects").then(function (r) { return r.json(); }).then(function (data) {
     setProjects(data.projects || []);
-    if (!projects.length) { pickerLabel.textContent = "No projects"; toast("No projects in workspace root", true); return; }
+    if (!projects.length) {
+      // A brand-new install has nothing in the workspace yet. Two things used to go
+      // wrong here, and both were this early return: the picker label said "No
+      // projects" while renderMenu() never ran, so opening the picker showed an
+      // EMPTY menu with no "New project" item in it — there was literally no way to
+      // make one — and the only hint was a toast that had already faded.
+      pickerLabel.textContent = "No project";
+      renderMenu();      // "New project…" must exist even when the list is empty
+      showFirstRun();    // and a blocking welcome explains the choice properly
+      return;
+    }
     // An explicit ?project= WINS over the saved last project. The other way round
     // meant a notification tap or a grid pane opened whichever conversation you
     // happened to be in last, then failed to find ?c= in it: "Could not load

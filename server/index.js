@@ -24,7 +24,7 @@ import { exportAnswer } from './export.js';
 import { listModels } from './models.js';
 import { listSites, SITE_GROUPS } from './sites.js';
 import { appById, appLoginContext, appForOrigin } from './apps.js';
-import { changePassword } from './credentials.js';
+import { changePassword, setEnvVar } from './credentials.js';
 import { getWorkspace, setWorkspace } from './settings.js';
 import { spendSummary } from './spend.js';
 import { listCommands } from './commands.js';
@@ -382,6 +382,35 @@ app.get('/api/projects', requireAuth, (req, res) => {
 // Create a new project folder in the caller's workspace (git-initialised so the
 // Operations runner can use it). Returns { name, path, git }.
 app.post('/api/projects', requireAuth, (req, res) => ok(res, () => createProjectFor(req.user, (req.body || {}).name)));
+
+// First-run setup: point the workspace at code you already have.
+//
+// A "project" is just a directory under WORKSPACES_ROOT, so "use my existing repo"
+// means moving that root — there is no separate registry to add a path to. The
+// value is written to .env and takes effect on the next start, because
+// WORKSPACES_ROOT is resolved once at import time in sandbox.js and is the anchor
+// every containment check is measured against. Re-resolving it live would mean
+// mutating the confinement root of a running server while turns are in flight,
+// which is not a trade worth making for a setup convenience.
+//
+// requireOwner, not requireAdmin: this decides where every account's home lives.
+app.post('/api/setup/workspace-root', requireOwner, (req, res) => {
+  try {
+    const raw = String((req.body || {}).path || '').trim();
+    if (!raw) throw new Error('Choose a folder first');
+    const abs = path.resolve(raw.replace(/^~(?=$|[\\/])/, HOME_DIR));
+    let st;
+    try { st = fs.statSync(abs); } catch { throw new Error('That folder does not exist: ' + abs); }
+    if (!st.isDirectory()) throw new Error('That is a file, not a folder');
+    try { fs.accessSync(abs, fs.constants.R_OK | fs.constants.X_OK); } catch {
+      throw new Error('That folder cannot be opened (check permissions)');
+    }
+    setEnvVar('WORKSPACES_ROOT', abs);
+    res.json({ ok: true, path: abs, restartRequired: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // Browse the server's filesystem for the "pick a file from disk" feature.
 // owner/admin can traverse the whole machine; a member is confined to their own
