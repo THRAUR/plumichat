@@ -11,7 +11,7 @@ does not work on your machine, that is a real bug and I would like to know.
 ## Getting set up
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/plumichat.git
+git clone https://github.com/THRAUR/plumichat.git
 cd plumichat
 npm install
 npm start                      # http://localhost:3002

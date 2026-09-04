@@ -96,7 +96,7 @@ go via the share sheet.
 ## Quick start
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/plumichat.git
+git clone https://github.com/THRAUR/plumichat.git
 cd plumichat
 npm install
 npm start
