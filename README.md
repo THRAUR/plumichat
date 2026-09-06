@@ -20,6 +20,10 @@ Runs on Linux, macOS and Windows. No build step, no framework, no database.
 
 <em>Claude Code's permission prompts, as taps. The full command is shown before you approve it.</em>
 
+<img src="docs/img/push-lockscreen.jpg" alt="An iPhone lock screen showing a PlumiChat notification: 'Website redesign and audit from PlumiChat — Your task is ready.'" width="236">
+
+<em>Real Web Push, not a page notification — so an answer reaches you on a <strong>locked</strong> phone.</em>
+
 </div>
 
 ---
@@ -81,7 +85,7 @@ go via the share sheet.
 - **Sites** — every website this machine is hosting, discovered live
 - **Engine** — what the SDK and CLI are running, with a staged, canaried update
 - **Web Push** — RFC 8291 + RFC 8292 implemented on `node:crypto` alone, so "turn
-  done" and "needs approval" reach a **locked** phone
+  done" and "needs approval" reach a **locked** phone ([proof](docs/img/push-lockscreen.jpg))
 
 **Design**
 - Nine palettes, seventeen accents, light and dark — all contrast-verified in a live
