@@ -49,6 +49,12 @@ that was asleep can still collect the result.
 and the message is *parked* rather than refused, and it goes out the moment the turn
 ends. Parked messages appear as chips above the composer.
 
+**The queue lives on the server, not in the tab.** Park a message on your laptop and
+it is there on your phone; hard-refresh or close the window by accident and it is
+still there when you come back. More importantly the work still *happens*: when a
+turn ends, the server starts the next queued message itself, so nothing needs a
+browser to be open for the pipeline to keep moving.
+
 **A parked message can be edited before it sends.** Tap the chip to open it — the
 reason you queued it is that you were thinking ahead, and a thought you had thirty
 seconds into a turn is often wrong by the end of it. While the editor is open that
@@ -59,6 +65,9 @@ Close the editor and it sends as soon as nothing else is running.
 - **Enter** saves, **Shift+Enter** is a newline, **Escape** discards the edit
 - **Remove** takes it out of the queue and puts the text back in the composer
 - Emptying the text removes it rather than sending a blank message
+- The hold is shared, so a message you are editing on one device shows as held on
+  the others rather than looking stuck. It expires after five minutes, so a tab you
+  closed mid-edit cannot wedge the queue.
 
 **Background agents keep the turn alive.** If the agent spawns background subagents,
 the turn does not end at the first result — it keeps going until they finish, the

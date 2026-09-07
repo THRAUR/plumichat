@@ -8,6 +8,7 @@
 // which is fine — finished turns are already persisted to the SDK's session log.
 import { randomUUID } from 'node:crypto';
 import { runPrompt, makeMemberPolicy, makeMemberSandbox, memberTurnsSupported } from './claude.js';
+import { claimNext, requeueFront } from './queue.js';
 import { platformLabel } from './platform.js';
 import { generateTitle, setAutoTitle, getAutoTitle, sdkTitle } from './titles.js';
 import { touchContext } from './context.js';
@@ -438,6 +439,12 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
           : run.status === 'stopped' ? 'The turn was stopped.'
             : run.status === 'error' ? 'The turn hit an error.'
               : 'Your task is ready.');
+      // Anything typed ahead during this turn goes out now. Server-side on purpose:
+      // the queue's whole promise is that it survives the tab that typed it, so a
+      // closed window, a hard refresh or a phone that went to sleep must not be
+      // what decides whether the next message runs.
+      try { drainQueue(run); } catch (err) { console.error('[queue] drain failed:', err); }
+
       run.cleanupTimer = setTimeout(() => {
         if (runs.get(run.key) === run) runs.delete(run.key);
       }, CLEANUP_MS);
@@ -446,6 +453,37 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
   })();
 
   return run;
+}
+
+
+// Start the next queued message for the conversation a turn just finished in.
+//
+// Only after a turn that actually COMPLETED. A stopped turn means a human pressed
+// stop — firing the next message at them would be arguing — and an errored one
+// means the next message would probably fail the same way. In both cases the
+// queue simply waits: it is persisted, so it is still there when they come back.
+function drainQueue(run) {
+  if (run.status !== 'done') return;
+  // runs are keyed `sessionId || id`, and the session id is assigned DURING the
+  // first turn of a new chat. Look under both so a queue attached before the id
+  // existed is still found afterwards.
+  const next = claimNext(run.sessionId || run.key) || (run.sessionId ? claimNext(run.key) : null);
+  if (!next) return;
+  try {
+    startRun({
+      ...next.spec,
+      // The conversation this turn actually landed in wins over whatever the spec
+      // captured: a first turn starts with sessionId null and acquires one.
+      sessionId: run.sessionId || next.spec.sessionId || null,
+      prompt: next.prompt,
+    });
+  } catch (err) {
+    // startRun throws for the caps and the spend gate. Put it back at the FRONT
+    // rather than dropping it: it was claimed atomically, so nothing else has it,
+    // and the next turn to finish will try again.
+    console.error('[queue] could not start queued message:', err?.message || err);
+    requeueFront(next);
+  }
 }
 
 // Attach a sender to a run. Brings a fresh/refreshed client up to speed (session

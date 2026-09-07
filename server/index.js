@@ -12,6 +12,10 @@ import { createRequire } from 'node:module';
 import { exec, execFile } from 'node:child_process';
 import yazl from 'yazl';
 import { startRun, subscribe, respondAsk, askRun, stopRun, listRuns, getRun } from './runs.js';
+import {
+  listFor as listQueue, enqueue as enqueueMsg, editQueued,
+  setEditing as setQueueEditing, removeQueued, onQueueChange, sweepQueue,
+} from './queue.js';
 import { limitsSnapshot } from './claude.js';   // last usage-window the engine saw
 import { shipEngineUpdate, shipStatus, lastWatchdogOutcome } from './engine-ship.js';
 import { listSkills, matchSkillCommand } from './skills.js';
@@ -754,6 +758,100 @@ app.get('/api/notepad/stream', requireAuth, (req, res) => {
   req.on('close', () => { clearInterval(ping); unsub(); });
 });
 
+
+// --- The message queue: type-ahead that survives the tab that typed it ---------
+// Persisted per conversation (server/queue.js), so every device sees the same
+// list, a hard refresh restores it, and the work still goes out when the turn
+// ends even if nothing is watching. Live sync is SSE, same shape as the notepad.
+const queueClients = new Map(); // userKey -> Set<res>
+function queueBroadcast(userId) {
+  const set = queueClients.get(String(userId || 'owner'));
+  if (!set || !set.size) return;
+  const frame = 'data: ' + JSON.stringify({ type: 'queue-changed' }) + '\n\n';
+  for (const res of set) { try { res.write(frame); } catch { /* its own close handler cleans up */ } }
+}
+// queue.js fires this on every mutation, including the ones runs.js makes when it
+// drains — which is how a phone finds out that the laptop's queue just moved.
+onQueueChange((userId) => queueBroadcast(userId));
+
+app.get('/api/queue', requireAuth, (req, res) => ok(res, () => ({
+  key: String(req.query.key || ''),
+  queued: listQueue(req.user, String(req.query.key || '')),
+})));
+
+// Queue behind the turn that is running RIGHT NOW. The turn parameters are copied
+// from that run, never from the body: a body that could name a cwd or a permission
+// mode would be a way to run an arbitrary turn later, under someone else's
+// confinement. Same rule server/resume.js follows, for the same reason.
+app.post('/api/queue', requireAuth, (req, res) => {
+  const body = req.body || {};
+  const key = String(body.key || '').trim();
+  const run = key ? getRun(key) : null;
+  if (!run || run.status !== 'running') {
+    // The turn ended between the client deciding to queue and this arriving.
+    // Say so precisely — the client's move is to send it now, not to retry.
+    return res.status(409).json({ error: 'no turn is running for this conversation', sendNow: true });
+  }
+  if (run.userId && req.user.id && run.userId !== req.user.id) {
+    return res.status(403).json({ error: 'that turn belongs to someone else' });
+  }
+  let composed;
+  try {
+    composed = composePrompt(req.user, body.wire, body.attachments);
+  } catch (err) {
+    return res.status(400).json({ error: `invalid attachment: ${err.message}` });
+  }
+  try {
+    res.json(enqueueMsg(req.user, key, {
+      wire: String(body.wire || ''),
+      prompt: composed.finalPrompt,
+      paths: composed.paths,
+      spec: run.spec,
+    }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Two different edits share this route: `wire` rewrites the message, `editing`
+// opens or closes the hold that keeps it from sending while you are still typing.
+app.patch('/api/queue/:id', requireAuth, (req, res) => {
+  const body = req.body || {};
+  if (typeof body.editing === 'boolean') {
+    return ok(res, () => setQueueEditing(req.user, req.params.id, body.editing, body.by));
+  }
+  let composed;
+  try {
+    composed = composePrompt(req.user, body.wire, body.attachments);
+  } catch (err) {
+    return res.status(400).json({ error: `invalid attachment: ${err.message}` });
+  }
+  ok(res, () => editQueued(req.user, req.params.id, String(body.wire || ''), composed.finalPrompt));
+});
+
+app.delete('/api/queue/:id', requireAuth, (req, res) => ok(res, () => removeQueued(req.user, req.params.id) || {}));
+
+app.get('/api/queue/stream', requireAuth, (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  res.write('retry: 3000\n\n');
+  res.write('data: ' + JSON.stringify({ type: 'queue-changed' }) + '\n\n');
+  const k = String(req.user.id || 'owner');
+  let set = queueClients.get(k);
+  if (!set) queueClients.set(k, (set = new Set()));
+  set.add(res);
+  const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* gone */ } }, 25000);
+  ping.unref?.();
+  req.on('close', () => {
+    clearInterval(ping);
+    set.delete(res);
+    if (!set.size) queueClients.delete(k);
+  });
+});
+
 // --- Web Push: "ping me when it's done", for a phone that is locked ---
 // Per-user (requireAuth), NOT owner-only: a member's turn finishing matters to the
 // member. Subscriptions are keyed by account inside push.js, so one account can
@@ -963,6 +1061,52 @@ function mayTouchRun(req, key) {
 }
 
 // Start a turn (detached run) and stream it.
+// Turn what the user typed into the prompt the engine actually receives: the
+// terminal-style "/<skill-id>" picker, then the attachment preamble. Extracted so
+// /api/chat and the message QUEUE compose a prompt the same way — a queued message
+// has to end up byte-identical to one sent immediately, or "it behaved differently
+// when it came out of the queue" becomes a class of bug.
+//
+// Throws on a bad attachment; every path is scope-checked here exactly as browsing
+// is, so a member cannot smuggle one outside their home by hand-crafting a request.
+function composePrompt(user, rawPrompt, attachments) {
+  const picked = matchSkillCommand(rawPrompt || '');
+  let finalPrompt = picked
+    ? `Use the "${picked.id}" skill.${picked.rest ? ' ' + picked.rest : ''}`
+    : (rawPrompt || '');
+
+  const list = Array.isArray(attachments) ? attachments : [];
+  if (!list.length) return { finalPrompt, paths: [] };
+
+  const files = [], dirs = [];
+  for (const a of list.slice(0, 25)) {
+    const abs = resolveBrowse(user, String(a));
+    const st = fs.statSync(abs);
+    if (st.isDirectory()) dirs.push(abs);
+    else if (st.isFile()) files.push(abs);
+    else throw new Error('not a file or folder');
+  }
+  const blocks = [];
+  if (files.length) {
+    // Open each with the tool that fits its type: the document skills (which use
+    // python-pptx / openpyxl / pdfplumber / etc.) can actually parse binary
+    // Office and PDF files, whereas the Read tool only handles text/code — so
+    // don't steer the agent at Read for an .xlsx/.docx/.pptx/.pdf.
+    const lead = 'The user attached these file(s) from disk' +
+      (finalPrompt ? ' for this message' : '') +
+      '. Open each with whatever tool fits its type — your document skills ' +
+      '(pptx / docx / xlsx / pdf) for Office and PDF files, your Read tool for text or code:';
+    blocks.push(lead + '\n' + files.map((p) => '- ' + p).join('\n'));
+  }
+  if (dirs.length) {
+    blocks.push(
+      'The user attached these folder(s) from disk. Explore them as needed with your LS, Glob, Grep and Read tools — each may be a separate project:\n' +
+      dirs.map((p) => '- ' + p).join('\n'));
+  }
+  const head = blocks.join('\n\n');
+  return { finalPrompt: head + (finalPrompt ? '\n\n' + finalPrompt : ''), paths: [...files, ...dirs] };
+}
+
 app.post('/api/chat', requireAuth, (req, res) => {
   const { project, prompt, sessionId, model, effort, fastMode, context1m, permissionMode, attachments } = req.body || {};
   const hasAtts = Array.isArray(attachments) && attachments.length > 0;
@@ -977,53 +1121,11 @@ app.post('/api/chat', requireAuth, (req, res) => {
     return res.status(400).json({ error: `invalid project: ${err.message}` });
   }
 
-  // Terminal-style skill picker: a leading "/<skill-id>" explicitly selects a
-  // skill. The browser shows the raw "/pptx …" in the sent bubble; here we turn
-  // it into a plain instruction the model will honor (and that reads fine when
-  // the conversation is replayed from the SDK log), stripping the slash token.
-  // A "/word" that isn't an installed skill is left as ordinary text.
-  const picked = matchSkillCommand(prompt || '');
-  let finalPrompt = picked
-    ? `Use the "${picked.id}" skill.${picked.rest ? ' ' + picked.rest : ''}`
-    : (prompt || '');
-
-  // Disk files AND folders the user attached (path-reference delivery): each must
-  // pass the SAME scope check as browsing, so a member can't smuggle a path
-  // outside their home by hand-crafting the request. We hand Claude the absolute
-  // paths and let its own tools open files / explore folders on demand. Folders
-  // make it possible to work across more than one project in a single chat.
-  if (hasAtts) {
-    const files = [], dirs = [];
-    try {
-      for (const a of attachments.slice(0, 25)) {
-        const abs = resolveBrowse(req.user, String(a));
-        const st = fs.statSync(abs);
-        if (st.isDirectory()) dirs.push(abs);
-        else if (st.isFile()) files.push(abs);
-        else throw new Error('not a file or folder');
-      }
-    } catch (err) {
-      return res.status(400).json({ error: `invalid attachment: ${err.message}` });
-    }
-    const blocks = [];
-    if (files.length) {
-      // Open each with the tool that fits its type: the document skills (which use
-      // python-pptx / openpyxl / pdfplumber / etc.) can actually parse binary
-      // Office and PDF files, whereas the Read tool only handles text/code — so
-      // don't steer the agent at Read for an .xlsx/.docx/.pptx/.pdf.
-      const lead = 'The user attached these file(s) from disk' +
-        (finalPrompt ? ' for this message' : '') +
-        '. Open each with whatever tool fits its type — your document skills ' +
-        '(pptx / docx / xlsx / pdf) for Office and PDF files, your Read tool for text or code:';
-      blocks.push(lead + '\n' + files.map((p) => '- ' + p).join('\n'));
-    }
-    if (dirs.length) {
-      blocks.push(
-        'The user attached these folder(s) from disk. Explore them as needed with your LS, Glob, Grep and Read tools — each may be a separate project:\n' +
-        dirs.map((p) => '- ' + p).join('\n'));
-    }
-    const head = blocks.join('\n\n');
-    finalPrompt = head + (finalPrompt ? '\n\n' + finalPrompt : '');
+  let finalPrompt;
+  try {
+    ({ finalPrompt } = composePrompt(req.user, prompt, attachments));
+  } catch (err) {
+    return res.status(400).json({ error: `invalid attachment: ${err.message}` });
   }
 
   // Members are hard-confined to their home (and lose Bash); admins are not.
@@ -1938,6 +2040,7 @@ if (EXPOSED && !authConfigured()) refuseToStart();
 
 const server = app.listen(PORT, HOST, () => {
   banner();
+  try { sweepQueue(); } catch (err) { console.error('queue sweep failed:', err); }
   try { initRunner(); } catch (err) { console.error('runner init failed:', err); }
   // Re-arms anything waiting on a usage window, and sweeps once for a window that
   // opened while the server was down — the case the feature exists for.

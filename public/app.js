@@ -29,7 +29,7 @@ import { initStream } from './js/stream.js';
 import { initTasks } from './js/tasks.js';
 import { initTerminal } from './js/panels/terminal.js';
 import { initThemeToggle } from './js/panels/theme-toggle.js';
-import { initTaskTray } from './js/tray.js';
+import { initTaskTray, initQueueSync } from './js/tray.js';
 import { initUsageChip } from './js/usage.js';
 import { initVoice } from './js/panels/voice.js';
 
@@ -84,6 +84,10 @@ initVoice();
 initRender();
 initDownloadMenus();
 initTaskTray();
+// Hold the queue's SSE stream for the whole session: it is how this window hears
+// about a message queued on your phone, and about the server draining one on its
+// own when a turn ends. Started after the tray so its first paint has a list.
+initQueueSync();
 initSheet();
 initContext();
 initUsageChip();

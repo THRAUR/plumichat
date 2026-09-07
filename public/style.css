@@ -4618,3 +4618,12 @@ body {
 .qe-btn.danger { color: var(--error); }
 /* Remove sits away from Save/Cancel so a mis-tap cannot discard what you typed. */
 .qe-btn.danger { margin-right: auto; }
+
+/* A queued message held open in someone ELSE's editor. It is not stuck — it is
+   waiting for a person — so it reads as paused rather than as an error, and the
+   pulsing "your turn is coming" dot stops, because this one is not coming next. */
+.queued-chip.held { opacity: 0.72; border-style: dashed; }
+.queued-chip.held::before { animation: none; opacity: 0.5; }
+/* Typed ahead in a brand-new chat, before the server has given the conversation an
+   id to file it under. It is on its way there; see stageOrPost in js/tray.js. */
+.queued-chip.pending { opacity: 0.85; }

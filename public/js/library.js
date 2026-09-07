@@ -15,7 +15,7 @@ import { clearMessages, renderMessages } from './render.js';
 import { activeSessionId, activeStreams, draftFor, drafts, dropIdleDrafts, freshViewKey, projName, projects, sessionsCache, setActiveSessionId, setCurrent, setViewKey, startDraft, viewKey, viewToken } from './state.js';
 import { friendlyModel, setStatus, setTurnModelInfo, syncRuns } from './stream.js';
 import { waitingState } from './tasks.js';
-import { flushQueued, renderTaskTray } from './tray.js';
+import { flushQueued, renderTaskTray, refreshQueue } from './tray.js';
 import { renderUsageChip } from './usage.js';
 
 /* ---------- Conversation library drawer ---------- */
@@ -456,6 +456,10 @@ export function reflectStream(key) {
     // anything you queued before switching away goes now (flushQueued only ever
     // fires for the conversation on screen, so this is where it lands).
     flushQueued(key);
+    // ...and show whatever is parked for the conversation we just opened. The
+    // queue is per-conversation and lives on the server, so switching chats is a
+    // read, not a local lookup.
+    refreshQueue(key);
     return;
   }
   // Re-bind this still-running turn to the CURRENT view instance so its live

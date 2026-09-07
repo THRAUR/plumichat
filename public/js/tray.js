@@ -4,9 +4,10 @@
 import { renderAttachments } from './panels/attachments.js';
 import { autoGrow, updateSend } from './composer.js';
 import { $, input, toast } from './dom.js';
+import { reqJSON, apiFetch } from './api.js';
 import { TRAY_CHEV } from './icons.js';
 import { activeStreams, pending, reattachTries, setPending, viewKey } from './state.js';
-import { send, stopCurrent } from './stream.js';
+import { send, stopCurrent, syncRuns, uploadOne } from './stream.js';
 import { onTasksChanged, tasksFor, waitingFor } from './tasks.js';
 import { renderUsageChip } from './usage.js';
 
@@ -177,83 +178,107 @@ export function renderTaskTray() {
   else if (!live && trayTick) { clearInterval(trayTick); trayTick = null; }
 }
 /* ---------- Queue a message while a turn is running (audit F4) ----------
-   The composer used to be a dead end during a turn: typing was allowed, sending
-   was not, and pressing send earned a 409. Now what you type is parked and goes
-   out the instant the turn ends.
+   The composer is not a dead end during a turn: what you type is parked and goes
+   out when the turn ends.
 
-   A parked message is also EDITABLE, because the reason you queued it is that you
-   were thinking ahead — and a thought you had thirty seconds into a turn is often
-   wrong by the end of it. Tap a chip to open it; the queue then treats that one
-   item as not-ready and keeps draining around it (see flushQueued). */
+   The queue lives on the SERVER (server/queue.js), keyed by conversation. It used
+   to be a plain object in this file, which made it three things it should never
+   have been: invisible on your other devices, lost to a hard refresh, and lost to
+   closing the window by accident. A queue you cannot trust to still be there is
+   worse than no queue, because you stop typing ahead.
+
+   So this module is now a VIEW, not a store:
+     - reads come from GET /api/queue, mirrored locally only to paint from
+     - every mutation is an HTTP call, and the answer is the truth
+     - other devices (and the server's own draining) arrive over an SSE stream
+     - NOTHING here sends a queued message any more. runs.js drains the queue when
+       a turn ends, so the work happens whether or not a browser is watching. */
 export let queuedList = $("queuedList");
-export let queuedMsgs = {};        // convKey -> [{ id, wire, atts }]
-export let queuedPainted = "";     // cheap guard: updateSend() runs on every keystroke
-// Which parked message is open in the inline editor, as { key, id } or null.
-// Keyed by a STABLE id rather than an index: flushQueued splices items out from
-// under it, so an index would silently start pointing at the wrong message.
-export let editingQueued = null;
-var queuedSeq = 0;
-export function queuedFor(key) { return queuedMsgs[key] || []; }
-export function isEditingQueued(key, id) {
-  return !!editingQueued && editingQueued.key === key && editingQueued.id === id;
+var queued = {};        // convKey -> rows from the server (mirror, never the truth)
+var staged = {};        // convKey -> rows not yet on the server (see stageOrPost)
+var editingId = null;   // the row open in THIS window's editor
+export let queuedPainted = "";
+var queueSeq = 0;       // ids for staged rows, which have no server id yet
+
+export function queuedFor(key) { return (staged[key] || []).concat(queued[key] || []); }
+function rowById(id) {
+  var all = queuedFor(viewKey);
+  for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+  return null;
 }
 export function repaintQueued() { queuedPainted = ""; renderQueued(); }
+
+/* ------------------------------------------------------------ server reads -- */
+
+export function refreshQueue(key) {
+  var k = key || viewKey;
+  if (!k || String(k).indexOf("new:") === 0) { repaintQueued(); return Promise.resolve(); }
+  return reqJSON("/api/queue?key=" + encodeURIComponent(k)).then(function (d) {
+    queued[k] = (d && d.queued) || [];
+    repaintQueued();
+    updateSend();
+  }).catch(function () { /* offline — keep painting the last known list */ });
+}
+
+/* ---------------------------------------------------------------- painting -- */
 
 export function renderQueued() {
   if (!queuedList) return;
   var list = queuedFor(viewKey);
   // The signature deliberately does NOT include the message text. While the editor
   // is open, updateSend() fires on every keystroke, and repainting would replace
-  // the textarea the caret is in. Ids + which one is open is enough to catch every
-  // change that actually needs new DOM.
-  var sig = String(viewKey) + ":" + list.map(function (q) { return q.id; }).join(",")
-          + ":" + (editingQueued && editingQueued.key === viewKey ? editingQueued.id : "");
+  // the textarea the caret is in. Ids, who is holding what, and which one is open
+  // here is enough to catch every change that actually needs new DOM.
+  var sig = String(viewKey) + ":" + list.map(function (q) {
+    return q.id + (q.editing ? "!" : "") + (q.pending ? "?" : "");
+  }).join(",") + ":" + (editingId || "");
   if (sig === queuedPainted) return;
   queuedPainted = sig;
   queuedList.innerHTML = "";
   list.forEach(function (q) {
-    queuedList.appendChild(isEditingQueued(viewKey, q.id) ? queuedEditor(q) : queuedChip(q));
+    queuedList.appendChild(q.id === editingId ? queuedEditor(q) : queuedChip(q));
   });
 }
 
-function attsLabel(atts) {
-  return atts.length + (atts.length === 1 ? " attachment" : " attachments");
-}
+function attsLabel(n) { return n + (n === 1 ? " attachment" : " attachments"); }
 
 // The resting state: a compact chip. The whole label is the edit affordance, so
 // there is no second icon competing with the × for a thumb-sized target.
 function queuedChip(q) {
   var chip = document.createElement("span");
-  chip.className = "queued-chip";
+  chip.className = "queued-chip" + (q.editing ? " held" : "") + (q.pending ? " pending" : "");
   var tx = document.createElement("button");
   tx.type = "button"; tx.className = "qc-text";
   var label = String(q.wire || "").replace(/\s+/g, " ").trim();
-  tx.textContent = label ? label.slice(0, 60) : attsLabel(q.atts);
-  tx.title = "Edit this before it sends";
-  tx.setAttribute("aria-label", "Edit this queued message before it sends");
-  tx.addEventListener("click", function () { beginEditQueued(viewKey, q.id); });
+  tx.textContent = label ? label.slice(0, 60) : attsLabel(q.atts || 0);
+  if (q.editing) {
+    // Held open somewhere else. Say so rather than letting it look stuck: this is
+    // the whole reason the hold is shared instead of being per-window state.
+    tx.title = "Being edited on another device — it won't send until that's finished";
+    tx.setAttribute("aria-label", tx.title);
+  } else {
+    tx.title = "Edit this before it sends";
+    tx.setAttribute("aria-label", "Edit this queued message before it sends");
+  }
+  tx.addEventListener("click", function () { beginEditQueued(q.id); });
   var x = document.createElement("button");
   x.type = "button"; x.className = "qc-x"; x.textContent = "\u00d7";
   x.setAttribute("aria-label", "Take this message back out of the queue");
   x.title = "Put it back in the composer";
-  x.addEventListener("click", function () { unqueueById(viewKey, q.id); });
+  x.addEventListener("click", function () { unqueueById(q.id); });
   chip.appendChild(tx); chip.appendChild(x);
   return chip;
 }
 
 // The open state: a real textarea on its own row (.queued-list wraps, and this
-// takes the full width). It is marked "won't send yet" because that is exactly
-// what being open means — see flushQueued.
+// claims the full width).
 function queuedEditor(q) {
   var box = document.createElement("div");
   box.className = "queued-edit";
 
   var head = document.createElement("div"); head.className = "qe-head";
   head.appendChild(document.createTextNode("Editing \u2014 won\u2019t send until you\u2019re done"));
-  if (q.atts && q.atts.length) {
-    var a = document.createElement("span"); a.className = "qe-atts"; a.textContent = attsLabel(q.atts);
-    head.appendChild(a);
-  }
+  if (q.atts) { var a = document.createElement("span"); a.className = "qe-atts"; a.textContent = attsLabel(q.atts); head.appendChild(a); }
   box.appendChild(head);
 
   var ta = document.createElement("textarea");
@@ -264,103 +289,196 @@ function queuedEditor(q) {
   var row = document.createElement("div"); row.className = "qe-row";
   var del = document.createElement("button");
   del.type = "button"; del.className = "qe-btn danger"; del.textContent = "Remove";
-  del.addEventListener("click", function () { unqueueById(viewKey, q.id); });
+  del.addEventListener("click", function () { unqueueById(q.id); });
   var cancel = document.createElement("button");
   cancel.type = "button"; cancel.className = "qe-btn"; cancel.textContent = "Cancel";
   cancel.addEventListener("click", function () { closeQueuedEditor(); });
   var save = document.createElement("button");
   save.type = "button"; save.className = "qe-btn primary"; save.textContent = "Save";
-  save.addEventListener("click", function () { saveEditQueued(viewKey, q.id, ta.value); });
+  save.addEventListener("click", function () { saveEditQueued(q.id, ta.value); });
   row.appendChild(del); row.appendChild(cancel); row.appendChild(save);
   box.appendChild(row);
 
   // Enter saves, Shift+Enter is a newline, Escape closes without saving — the same
   // grammar as the composer, so the muscle memory carries over.
   ta.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEditQueued(viewKey, q.id, ta.value); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEditQueued(q.id, ta.value); }
     else if (e.key === "Escape") { e.stopPropagation(); closeQueuedEditor(); }
   });
   setTimeout(function () { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
   return box;
 }
 
-export function beginEditQueued(key, id) {
-  editingQueued = { key: key, id: id };
-  repaintQueued();
+/* --------------------------------------------------------------- mutations -- */
+
+// Park a message behind the running turn. Files are uploaded HERE rather than at
+// send time: a File object cannot be persisted, and the whole promise of this
+// queue is that it outlives the tab that typed it.
+export function enqueueMessage(key, wire, atts) {
+  var files = [], ready = [];
+  (atts || []).forEach(function (a) {
+    if (a.kind === "server" && a.path) ready.push(a.path);
+    else if (a.file) files.push(a.file);
+  });
+  Promise.all(files.map(uploadOne)).then(function (paths) {
+    return stageOrPost(key, wire, ready.concat(paths));
+  }).catch(function (e) {
+    toast(e.message || "Could not queue that message", true);
+  });
 }
 
-// Closing the editor is what makes the message eligible again — so it has to try
-// the queue immediately. The turn it was waiting behind may well have ended while
-// you were typing, in which case flushQueued skipped this one and moved on; now
-// that it is ready, nothing else is going to come along and start it.
+// A brand-new chat has no session id until the server sends one, a second or so
+// into its first turn — and the server queue is keyed by that id. So a message
+// queued inside that window is STAGED locally and posted the moment the id lands
+// (rekeyQueue). It is painted like any other, because to the person it is queued.
+function stageOrPost(key, wire, paths) {
+  if (!key || String(key).indexOf("new:") === 0) {
+    if (!staged[key]) staged[key] = [];
+    staged[key].push({ id: "s_" + (++queueSeq), wire: wire, atts: paths.length, paths: paths, pending: true });
+    repaintQueued(); updateSend();
+    toast("Queued \u2014 tap it to edit before it sends");
+    return Promise.resolve();
+  }
+  return postQueued(key, wire, paths);
+}
+
+function postQueued(key, wire, paths) {
+  return apiFetch("/api/queue", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: key, wire: wire, attachments: paths }),
+  }).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (d) {
+      if (r.status === 409 && d.sendNow) {
+        // The turn ended between deciding to queue and this arriving. Nothing is
+        // waiting for it, so send it instead of pretending it is still queued.
+        send(wire, (paths || []).map(function (p) { return { kind: "server", path: p, name: p }; }));
+        return;
+      }
+      if (!r.ok) throw new Error(d.error || ("Could not queue (" + r.status + ")"));
+      toast("Queued \u2014 tap it to edit before it sends");
+      return refreshQueue(key);
+    });
+  });
+}
+
+// Called from stream.js when a new chat learns its real session id. Anything
+// staged under the placeholder key goes to the server now, in order.
+export function rekeyQueue(oldKey, newKey) {
+  var rows = staged[oldKey] || [];
+  delete staged[oldKey];
+  if (queued[oldKey]) { queued[newKey] = queued[oldKey]; delete queued[oldKey]; }
+  var chain = Promise.resolve();
+  rows.forEach(function (r) {
+    chain = chain.then(function () { return postQueued(newKey, r.wire, r.paths || []); });
+  });
+  chain.then(function () { return refreshQueue(newKey); }).catch(function () { /* toast already shown */ });
+}
+
+export function beginEditQueued(id) {
+  var q = rowById(id);
+  if (!q) return;
+  editingId = id;
+  repaintQueued();
+  // Tell the server (and therefore the other devices, and the drain) that this one
+  // is being written. Staged rows have no server row to hold yet.
+  if (!q.pending) {
+    apiFetch("/api/queue/" + encodeURIComponent(id), {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ editing: true, by: deviceLabel() }),
+    }).catch(function () { /* the hold is an optimisation, not a correctness gate */ });
+  }
+}
+
+// Closing the editor releases the hold, which is what makes the message eligible
+// again. The server drains on its own from there.
 export function closeQueuedEditor() {
-  if (!editingQueued) return;
-  editingQueued = null;
-  repaintQueued();
-  updateSend();
-  flushQueued(viewKey);
+  var id = editingId;
+  if (!id) return;
+  editingId = null;
+  repaintQueued(); updateSend();
+  var q = rowById(id);
+  if (q && !q.pending) {
+    apiFetch("/api/queue/" + encodeURIComponent(id), {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ editing: false }),
+    }).then(function () { return refreshQueue(viewKey); }).catch(function () { /* ignore */ });
+  }
 }
 
-export function saveEditQueued(key, id, text) {
-  var list = queuedMsgs[key];
-  var item = list && list.find(function (q) { return q.id === id; });
-  if (!item) { closeQueuedEditor(); return; }
+export function saveEditQueued(id, text) {
+  var q = rowById(id);
+  if (!q) { closeQueuedEditor(); return; }
   var wire = String(text == null ? "" : text).trim();
   // Emptied with nothing else to carry: that is a delete, not a blank message.
-  if (!wire && !(item.atts && item.atts.length)) { unqueueById(key, id); return; }
-  item.wire = wire;
-  closeQueuedEditor();
-}
-
-export function enqueueMessage(key, wire, atts) {
-  if (!queuedMsgs[key]) queuedMsgs[key] = [];
-  queuedMsgs[key].push({ id: ++queuedSeq, wire: wire, atts: atts || [] });
-  repaintQueued(); updateSend();
-  toast("Queued \u2014 tap it to edit before it sends");
+  if (!wire && !q.atts) { unqueueById(id); return; }
+  if (q.pending) { q.wire = wire; editingId = null; repaintQueued(); updateSend(); return; }
+  editingId = null;
+  repaintQueued();
+  apiFetch("/api/queue/" + encodeURIComponent(id), {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ wire: wire, attachments: q.paths || [] }),
+  }).then(function () { return refreshQueue(viewKey); })
+    .catch(function (e) { toast(e.message || "Could not save that edit", true); });
 }
 
 // Taking one back must not lose it: the text goes into the composer (unless you
-// have already started typing something else) and the files back onto the tray.
-export function unqueueById(key, id) {
-  var list = queuedMsgs[key]; if (!list) return;
-  var i = list.findIndex(function (q) { return q.id === id; });
-  if (i < 0) return;
-  var item = list.splice(i, 1)[0];
-  if (!list.length) delete queuedMsgs[key];
-  if (isEditingQueued(key, id)) editingQueued = null;
-  if (item) {
-    if (!input.value.trim() && item.wire) { input.value = item.wire; autoGrow(); }
-    if (item.atts && item.atts.length) { setPending(pending.concat(item.atts)); renderAttachments(); }
+// have already started typing something else).
+export function unqueueById(id) {
+  var q = rowById(id);
+  if (!q) return;
+  if (editingId === id) editingId = null;
+  if (!input.value.trim() && q.wire) { input.value = q.wire; autoGrow(); }
+  if (q.pending) {
+    var list = staged[viewKey] || [];
+    var i = list.findIndex(function (r) { return r.id === id; });
+    if (i >= 0) list.splice(i, 1);
+    repaintQueued(); updateSend();
+    return;
   }
+  // Paint the removal immediately; the refresh below is the confirmation.
+  queued[viewKey] = (queued[viewKey] || []).filter(function (r) { return r.id !== id; });
   repaintQueued(); updateSend();
-}
-// Index-based removal is kept for callers that already have one.
-export function unqueue(key, i) {
-  var list = queuedMsgs[key];
-  if (list && list[i]) unqueueById(key, list[i].id);
+  apiFetch("/api/queue/" + encodeURIComponent(id), { method: "DELETE" })
+    .then(function () { return refreshQueue(viewKey); })
+    .catch(function () { refreshQueue(viewKey); });
 }
 
-// Send the oldest READY queued message for a conversation. Only ever for the
-// conversation ON SCREEN: send() binds the new turn to viewKey/viewToken, so
-// flushing a background conversation's queue would post it into whichever chat you
-// were looking at. A parked queue simply waits until you come back (see
-// reflectStream).
+/* ---------------------------------------------------------------- draining -- */
+
+// The server drains the queue when a turn ends (runs.js), so this no longer sends
+// anything — it only brings the view back in step. Kept under the old name because
+// three callers already say "the turn ended, deal with the queue" by calling it.
 export function flushQueued(key) {
-  if (key !== viewKey) return;
-  if (activeStreams[key] || reattachTries[key]) return;
-  var list = queuedMsgs[key];
-  if (!list || !list.length) return;
-  // Skip whatever is open in the editor. You are still writing it, so sending it
-  // now would post a half-finished message — but the ones BEHIND it are finished,
-  // so the queue keeps moving and the edited one simply holds its place until you
-  // close the editor (closeQueuedEditor calls back in here).
-  var i = 0;
-  while (i < list.length && isEditingQueued(key, list[i].id)) i++;
-  if (i >= list.length) return;   // everything parked is mid-edit: wait for you.
-  var next = list.splice(i, 1)[0];
-  if (!list.length) delete queuedMsgs[key];
-  repaintQueued();
-  send(next.wire, next.atts);
+  refreshQueue(key || viewKey);
+}
+
+// A short, throwaway label so another device can say WHERE a message is being
+// edited. Deliberately coarse — it is a courtesy, not telemetry.
+function deviceLabel() {
+  var ua = navigator.userAgent || "";
+  if (/iPhone|Android.*Mobile/i.test(ua)) return "a phone";
+  if (/iPad|Tablet/i.test(ua)) return "a tablet";
+  if (/Macintosh/i.test(ua)) return "a Mac";
+  if (/Windows/i.test(ua)) return "a PC";
+  return "another device";
+}
+
+// Live sync. Every device with the app open holds this stream; the server pushes a
+// bare "something changed" and we re-read, which keeps the wire dumb and means a
+// missed frame self-heals on the next one. It also fires when the SERVER drains,
+// which is how a window that did not start the turn still picks it up: syncRuns()
+// attaches to whatever is now running.
+var queueES = null;
+export function initQueueSync() {
+  if (queueES || typeof EventSource === "undefined") return;
+  try { queueES = new EventSource("/api/queue/stream"); } catch (e) { return; }
+  queueES.onmessage = function () {
+    refreshQueue(viewKey);
+    syncRuns();
+  };
+  // EventSource reconnects on its own (the server sends `retry:`); nothing to do
+  // here but avoid logging a reconnect as an error.
+  queueES.onerror = function () { /* browser retries */ };
 }
 
 export function initTaskTray() {

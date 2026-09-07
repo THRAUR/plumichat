@@ -23,7 +23,7 @@ import { permAllowed, permMode } from './panels/perm.js';
 import { addError, addNotice, addRow, addTool, addUser, makeFileBox, mdNode, scrollDown } from './render.js';
 import { REATTACH_COOLDOWN_MS, activeSessionId, activeStreams, cur, draftFor, drafts, endingsSeen, projName, reattachTries, recentlyEnded, resetReattachTries, sessionsCache, setActiveSessionId, setCur, setViewKey, viewKey, viewToken } from './state.js';
 import { addTurnUsage, clearTasks, emitTasksChanged, limitResetMs, noteTask, rekeyTaskState, setLimits, thinkingState, waitingState } from './tasks.js';
-import { flushQueued, renderTaskTray } from './tray.js';
+import { flushQueued, renderTaskTray, rekeyQueue } from './tray.js';
 
 /* ---------- Live streaming assistant ---------- */
 // The REAL model the server reported for the in-flight turn. Two grades of
@@ -618,6 +618,7 @@ export function consumeStream(stream, project, responsePromise) {
         stream.convKey = ev.sessionId;
         activeStreams[ev.sessionId] = stream;
         rekeyTaskState(oldKey, ev.sessionId);   // the agents tray follows the conversation
+        rekeyQueue(oldKey, ev.sessionId);       // ...and so does anything typed ahead
         if (wasLive) { setActiveSessionId(ev.sessionId); setViewKey(ev.sessionId); }
         // Re-key the drawer's draft row onto the real session id so it stops
         // being a placeholder and tracks the now-persisted conversation.
