@@ -91,6 +91,21 @@ export function submit() {
   });
 }
 
+/* Hand the composer back from the pre-boot shell (the inline script in
+   index.html — read the comment there for why it exists at all).
+
+   Called from boot.js once the projects are in, NOT from initComposer: submit()
+   goes through send(), which refuses with "No project selected" while
+   projName() is still empty. Draining any earlier would swap one silently
+   dropped message for one that fails with a toast. */
+export function flushPreboot() {
+  var pb = window.PLUMI_PREBOOT;
+  if (!pb || pb.ready) return;
+  pb.ready = true;          // the shell's handlers stand aside from here
+  updateSend();             // adopt whatever was typed before we existed
+  if (pb.pending) { pb.pending = false; submit(); }
+}
+
 export function initComposer() {
   input.addEventListener("input", autoGrow);
   window.addEventListener("plumi-enter-mode", function (e) {

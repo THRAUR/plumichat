@@ -5,7 +5,7 @@
 
 import { apiFetch } from './api.js';
 import { showFirstRun } from './onboarding.js';
-import { updateSend } from './composer.js';
+import { flushPreboot, updateSend } from './composer.js';
 import { EMBED, NEW_CHAT, PANE, SEED_CONV, SEED_PROJECT, clearSeedConv, pref, toast } from './dom.js';
 import { goToConversation, refreshLibrary, updateTopbarTitle } from './library.js';
 import { openLatestOrEmpty, openMostRecentOrEmpty, pickerLabel, renderMenu } from './projects.js';
@@ -42,6 +42,7 @@ export function loadProjects(isRefresh) {
       pickerLabel.textContent = "No project";
       renderMenu();      // "New project…" must exist even when the list is empty
       showFirstRun();    // and a blocking welcome explains the choice properly
+      flushPreboot();    // nothing to send into, but stop pretending to be loading
       return;
     }
     // An explicit ?project= WINS over the saved last project. The other way round
@@ -88,5 +89,12 @@ export function loadProjects(isRefresh) {
       refreshLibrary().then(openMostRecentOrEmpty);
     }
     syncRuns(); // reattach to any turn still running on the server
-  }).catch(function () { pickerLabel.textContent = "Error"; toast("Could not load projects", true); });
+    // The app can send now. Take the composer back from the pre-boot shell and
+    // replay a Send that was tapped while the modules were still loading.
+    flushPreboot();
+  }).catch(function () {
+    pickerLabel.textContent = "Error";
+    toast("Could not load projects", true);
+    flushPreboot();   // a failed boot must still leave a working button
+  });
 }

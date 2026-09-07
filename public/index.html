@@ -636,6 +636,40 @@
       else if (mqc.addListener) mqc.addListener(applyEnterMode);
     } catch (e) {}
     applyEnterMode();
+
+    /* ---- The composer works before app.js does ----
+       The composer is static HTML, so it is on screen and typeable within a few
+       hundred milliseconds — but Send is `disabled` in the markup and only
+       composer.js's updateSend() ever enables it, which cannot happen until
+       app.js and its forty-module graph have loaded. On a slow or distant link
+       that gap is seconds, and in it the app looks completely ready: you type,
+       you tap Send, and NOTHING happens — no error, no echo, the text just sits
+       there. Tap it again once the modules land and it sends. That is the whole
+       of "I have to submit everything twice, the first one is always ignored".
+
+       So the shell answers for the composer until the app can: enable Send the
+       moment there is something to send, swallow the tap, and hand it over.
+       Two things are load-bearing:
+         - preventDefault() on submit. #sendBtn is type="submit" inside a <form>,
+           so without app.js's handler an enabled button NAVIGATES — the browser
+           would reload the page with the message as a query string and lose it.
+         - `ready`. composer.js attaches its own submit handler on top of this
+           one; from that point this must do nothing but stand aside. */
+    var PREBOOT = window.PLUMI_PREBOOT = { pending: false, ready: false };
+    var sendBtn = document.getElementById("sendBtn");
+    var composer = document.getElementById("composer");
+    if (input && sendBtn) {
+      input.addEventListener("input", function () {
+        if (PREBOOT.ready) return;   // updateSend() owns the button from here
+        sendBtn.disabled = !input.value.trim();
+      });
+    }
+    if (composer) {
+      composer.addEventListener("submit", function (e) {
+        e.preventDefault();          // never let the form navigate
+        if (!PREBOOT.ready) PREBOOT.pending = true;   // boot.js replays it
+      });
+    }
   })();
   </script>
 
@@ -652,47 +686,56 @@
   <!-- Preload the module graph. app.js imports 3 levels deep, so without these the
        browser discovers 38 files one round-trip at a time — painful on a
        high-latency link. Listed here they are all fetched in parallel instead.
-       Generated from public/js/; if you add a module, add its line. -->
-  <link rel="modulepreload" href="/js/api.js?v=20260903">
-  <link rel="modulepreload" href="/js/boot.js?v=20260903">
-  <link rel="modulepreload" href="/js/cards.js?v=20260903">
-  <link rel="modulepreload" href="/js/composer.js?v=20260903">
-    <link rel="modulepreload" href="/js/panels/context.js?v=20260903">
-    <link rel="modulepreload" href="/js/panels/plugins.js?v=20260903">
-  <link rel="modulepreload" href="/js/dismiss.js?v=20260903">
-  <link rel="modulepreload" href="/js/dom.js?v=20260903">
-  <link rel="modulepreload" href="/js/exports.js?v=20260903">
-  <link rel="modulepreload" href="/js/files.js?v=20260903">
-  <link rel="modulepreload" href="/js/handoff.js?v=20260903">
-  <link rel="modulepreload" href="/js/history.js?v=20260903">
-  <link rel="modulepreload" href="/js/icons.js?v=20260903">
-  <link rel="modulepreload" href="/js/library.js?v=20260903">
-  <link rel="modulepreload" href="/js/models.js?v=20260903">
-  <link rel="modulepreload" href="/js/profile.js?v=20260903">
-  <link rel="modulepreload" href="/js/projects.js?v=20260903">
-  <link rel="modulepreload" href="/js/quote.js?v=20260903">
-  <link rel="modulepreload" href="/js/render.js?v=20260903">
-  <link rel="modulepreload" href="/js/sheet.js?v=20260903">
-  <link rel="modulepreload" href="/js/state.js?v=20260903">
-  <link rel="modulepreload" href="/js/stream.js?v=20260903">
-  <link rel="modulepreload" href="/js/tasks.js?v=20260903">
-  <link rel="modulepreload" href="/js/tray.js?v=20260903">
-  <link rel="modulepreload" href="/js/usage.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/attachments.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/commands.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/deliverables.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/engine.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/notepad.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/notify.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/perm.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/push.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/restart.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/shortcuts.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/sites.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/skills.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/terminal.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/theme-toggle.js?v=20260903">
-  <link rel="modulepreload" href="/js/panels/voice.js?v=20260903">
+       Generated from public/js/; if you add a module, add its line.
+
+       NO ?v= ON THESE. A preload only pays off if it names the byte-identical URL
+       the module graph goes on to import, and app.js's imports are relative, so
+       they resolve to bare /js/… paths. These lines used to carry the stamp, which
+       made every href a URL nothing ever imported: the browser dutifully fetched
+       all 40, then fetched all 40 again unstamped — 82 requests and ~800 KB of
+       JavaScript for a 42-module app, on every cold load. The stamp is not needed
+       here anyway; freshness for /js/ comes from the Cache-Control: no-cache the
+       server sets on everything in public/ (see the note above). -->
+  <link rel="modulepreload" href="/js/api.js">
+  <link rel="modulepreload" href="/js/boot.js">
+  <link rel="modulepreload" href="/js/cards.js">
+  <link rel="modulepreload" href="/js/composer.js">
+    <link rel="modulepreload" href="/js/panels/context.js">
+    <link rel="modulepreload" href="/js/panels/plugins.js">
+  <link rel="modulepreload" href="/js/dismiss.js">
+  <link rel="modulepreload" href="/js/dom.js">
+  <link rel="modulepreload" href="/js/exports.js">
+  <link rel="modulepreload" href="/js/files.js">
+  <link rel="modulepreload" href="/js/handoff.js">
+  <link rel="modulepreload" href="/js/history.js">
+  <link rel="modulepreload" href="/js/icons.js">
+  <link rel="modulepreload" href="/js/library.js">
+  <link rel="modulepreload" href="/js/models.js">
+  <link rel="modulepreload" href="/js/profile.js">
+  <link rel="modulepreload" href="/js/projects.js">
+  <link rel="modulepreload" href="/js/quote.js">
+  <link rel="modulepreload" href="/js/render.js">
+  <link rel="modulepreload" href="/js/sheet.js">
+  <link rel="modulepreload" href="/js/state.js">
+  <link rel="modulepreload" href="/js/stream.js">
+  <link rel="modulepreload" href="/js/tasks.js">
+  <link rel="modulepreload" href="/js/tray.js">
+  <link rel="modulepreload" href="/js/usage.js">
+  <link rel="modulepreload" href="/js/panels/attachments.js">
+  <link rel="modulepreload" href="/js/panels/commands.js">
+  <link rel="modulepreload" href="/js/panels/deliverables.js">
+  <link rel="modulepreload" href="/js/panels/engine.js">
+  <link rel="modulepreload" href="/js/panels/notepad.js">
+  <link rel="modulepreload" href="/js/panels/notify.js">
+  <link rel="modulepreload" href="/js/panels/perm.js">
+  <link rel="modulepreload" href="/js/panels/push.js">
+  <link rel="modulepreload" href="/js/panels/restart.js">
+  <link rel="modulepreload" href="/js/panels/shortcuts.js">
+  <link rel="modulepreload" href="/js/panels/sites.js">
+  <link rel="modulepreload" href="/js/panels/skills.js">
+  <link rel="modulepreload" href="/js/panels/terminal.js">
+  <link rel="modulepreload" href="/js/panels/theme-toggle.js">
+  <link rel="modulepreload" href="/js/panels/voice.js">
   <script type="module" src="/app.js?v=20260904b"></script>
 </body>
 </html>
