@@ -179,62 +179,185 @@ export function renderTaskTray() {
 /* ---------- Queue a message while a turn is running (audit F4) ----------
    The composer used to be a dead end during a turn: typing was allowed, sending
    was not, and pressing send earned a 409. Now what you type is parked and goes
-   out the instant the turn ends. */
+   out the instant the turn ends.
+
+   A parked message is also EDITABLE, because the reason you queued it is that you
+   were thinking ahead — and a thought you had thirty seconds into a turn is often
+   wrong by the end of it. Tap a chip to open it; the queue then treats that one
+   item as not-ready and keeps draining around it (see flushQueued). */
 export let queuedList = $("queuedList");
-export let queuedMsgs = {};        // convKey -> [{ wire, atts }]
+export let queuedMsgs = {};        // convKey -> [{ id, wire, atts }]
 export let queuedPainted = "";     // cheap guard: updateSend() runs on every keystroke
+// Which parked message is open in the inline editor, as { key, id } or null.
+// Keyed by a STABLE id rather than an index: flushQueued splices items out from
+// under it, so an index would silently start pointing at the wrong message.
+export let editingQueued = null;
+var queuedSeq = 0;
 export function queuedFor(key) { return queuedMsgs[key] || []; }
+export function isEditingQueued(key, id) {
+  return !!editingQueued && editingQueued.key === key && editingQueued.id === id;
+}
 export function repaintQueued() { queuedPainted = ""; renderQueued(); }
+
 export function renderQueued() {
   if (!queuedList) return;
   var list = queuedFor(viewKey);
-  var sig = String(viewKey) + ":" + list.length;
+  // The signature deliberately does NOT include the message text. While the editor
+  // is open, updateSend() fires on every keystroke, and repainting would replace
+  // the textarea the caret is in. Ids + which one is open is enough to catch every
+  // change that actually needs new DOM.
+  var sig = String(viewKey) + ":" + list.map(function (q) { return q.id; }).join(",")
+          + ":" + (editingQueued && editingQueued.key === viewKey ? editingQueued.id : "");
   if (sig === queuedPainted) return;
   queuedPainted = sig;
   queuedList.innerHTML = "";
-  list.forEach(function (q, i) {
-    var chip = document.createElement("span");
-    chip.className = "queued-chip";
-    var tx = document.createElement("span"); tx.className = "qc-text";
-    var label = String(q.wire || "").replace(/\s+/g, " ").trim();
-    tx.textContent = label ? label.slice(0, 60) : (q.atts.length + (q.atts.length === 1 ? " attachment" : " attachments"));
-    var x = document.createElement("button");
-    x.type = "button"; x.className = "qc-x"; x.textContent = "×";
-    x.setAttribute("aria-label", "Take this message back out of the queue");
-    x.title = "Put it back in the composer";
-    x.addEventListener("click", function () { unqueue(viewKey, i); });
-    chip.appendChild(tx); chip.appendChild(x);
-    queuedList.appendChild(chip);
+  list.forEach(function (q) {
+    queuedList.appendChild(isEditingQueued(viewKey, q.id) ? queuedEditor(q) : queuedChip(q));
   });
 }
+
+function attsLabel(atts) {
+  return atts.length + (atts.length === 1 ? " attachment" : " attachments");
+}
+
+// The resting state: a compact chip. The whole label is the edit affordance, so
+// there is no second icon competing with the × for a thumb-sized target.
+function queuedChip(q) {
+  var chip = document.createElement("span");
+  chip.className = "queued-chip";
+  var tx = document.createElement("button");
+  tx.type = "button"; tx.className = "qc-text";
+  var label = String(q.wire || "").replace(/\s+/g, " ").trim();
+  tx.textContent = label ? label.slice(0, 60) : attsLabel(q.atts);
+  tx.title = "Edit this before it sends";
+  tx.setAttribute("aria-label", "Edit this queued message before it sends");
+  tx.addEventListener("click", function () { beginEditQueued(viewKey, q.id); });
+  var x = document.createElement("button");
+  x.type = "button"; x.className = "qc-x"; x.textContent = "\u00d7";
+  x.setAttribute("aria-label", "Take this message back out of the queue");
+  x.title = "Put it back in the composer";
+  x.addEventListener("click", function () { unqueueById(viewKey, q.id); });
+  chip.appendChild(tx); chip.appendChild(x);
+  return chip;
+}
+
+// The open state: a real textarea on its own row (.queued-list wraps, and this
+// takes the full width). It is marked "won't send yet" because that is exactly
+// what being open means — see flushQueued.
+function queuedEditor(q) {
+  var box = document.createElement("div");
+  box.className = "queued-edit";
+
+  var head = document.createElement("div"); head.className = "qe-head";
+  head.appendChild(document.createTextNode("Editing \u2014 won\u2019t send until you\u2019re done"));
+  if (q.atts && q.atts.length) {
+    var a = document.createElement("span"); a.className = "qe-atts"; a.textContent = attsLabel(q.atts);
+    head.appendChild(a);
+  }
+  box.appendChild(head);
+
+  var ta = document.createElement("textarea");
+  ta.className = "qe-input"; ta.rows = 2; ta.value = q.wire || "";
+  ta.setAttribute("aria-label", "Queued message");
+  box.appendChild(ta);
+
+  var row = document.createElement("div"); row.className = "qe-row";
+  var del = document.createElement("button");
+  del.type = "button"; del.className = "qe-btn danger"; del.textContent = "Remove";
+  del.addEventListener("click", function () { unqueueById(viewKey, q.id); });
+  var cancel = document.createElement("button");
+  cancel.type = "button"; cancel.className = "qe-btn"; cancel.textContent = "Cancel";
+  cancel.addEventListener("click", function () { closeQueuedEditor(); });
+  var save = document.createElement("button");
+  save.type = "button"; save.className = "qe-btn primary"; save.textContent = "Save";
+  save.addEventListener("click", function () { saveEditQueued(viewKey, q.id, ta.value); });
+  row.appendChild(del); row.appendChild(cancel); row.appendChild(save);
+  box.appendChild(row);
+
+  // Enter saves, Shift+Enter is a newline, Escape closes without saving — the same
+  // grammar as the composer, so the muscle memory carries over.
+  ta.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEditQueued(viewKey, q.id, ta.value); }
+    else if (e.key === "Escape") { e.stopPropagation(); closeQueuedEditor(); }
+  });
+  setTimeout(function () { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0);
+  return box;
+}
+
+export function beginEditQueued(key, id) {
+  editingQueued = { key: key, id: id };
+  repaintQueued();
+}
+
+// Closing the editor is what makes the message eligible again — so it has to try
+// the queue immediately. The turn it was waiting behind may well have ended while
+// you were typing, in which case flushQueued skipped this one and moved on; now
+// that it is ready, nothing else is going to come along and start it.
+export function closeQueuedEditor() {
+  if (!editingQueued) return;
+  editingQueued = null;
+  repaintQueued();
+  updateSend();
+  flushQueued(viewKey);
+}
+
+export function saveEditQueued(key, id, text) {
+  var list = queuedMsgs[key];
+  var item = list && list.find(function (q) { return q.id === id; });
+  if (!item) { closeQueuedEditor(); return; }
+  var wire = String(text == null ? "" : text).trim();
+  // Emptied with nothing else to carry: that is a delete, not a blank message.
+  if (!wire && !(item.atts && item.atts.length)) { unqueueById(key, id); return; }
+  item.wire = wire;
+  closeQueuedEditor();
+}
+
 export function enqueueMessage(key, wire, atts) {
   if (!queuedMsgs[key]) queuedMsgs[key] = [];
-  queuedMsgs[key].push({ wire: wire, atts: atts || [] });
+  queuedMsgs[key].push({ id: ++queuedSeq, wire: wire, atts: atts || [] });
   repaintQueued(); updateSend();
-  toast("Queued — it sends the moment this turn ends");
+  toast("Queued \u2014 tap it to edit before it sends");
 }
+
 // Taking one back must not lose it: the text goes into the composer (unless you
 // have already started typing something else) and the files back onto the tray.
-export function unqueue(key, i) {
+export function unqueueById(key, id) {
   var list = queuedMsgs[key]; if (!list) return;
+  var i = list.findIndex(function (q) { return q.id === id; });
+  if (i < 0) return;
   var item = list.splice(i, 1)[0];
   if (!list.length) delete queuedMsgs[key];
+  if (isEditingQueued(key, id)) editingQueued = null;
   if (item) {
     if (!input.value.trim() && item.wire) { input.value = item.wire; autoGrow(); }
     if (item.atts && item.atts.length) { setPending(pending.concat(item.atts)); renderAttachments(); }
   }
   repaintQueued(); updateSend();
 }
-// Send the oldest queued message for a conversation. Only ever for the conversation
-// ON SCREEN: send() binds the new turn to viewKey/viewToken, so flushing a
-// background conversation's queue would post it into whichever chat you were
-// looking at. A parked queue simply waits until you come back (see reflectStream).
+// Index-based removal is kept for callers that already have one.
+export function unqueue(key, i) {
+  var list = queuedMsgs[key];
+  if (list && list[i]) unqueueById(key, list[i].id);
+}
+
+// Send the oldest READY queued message for a conversation. Only ever for the
+// conversation ON SCREEN: send() binds the new turn to viewKey/viewToken, so
+// flushing a background conversation's queue would post it into whichever chat you
+// were looking at. A parked queue simply waits until you come back (see
+// reflectStream).
 export function flushQueued(key) {
   if (key !== viewKey) return;
   if (activeStreams[key] || reattachTries[key]) return;
   var list = queuedMsgs[key];
   if (!list || !list.length) return;
-  var next = list.shift();
+  // Skip whatever is open in the editor. You are still writing it, so sending it
+  // now would post a half-finished message — but the ones BEHIND it are finished,
+  // so the queue keeps moving and the edited one simply holds its place until you
+  // close the editor (closeQueuedEditor calls back in here).
+  var i = 0;
+  while (i < list.length && isEditingQueued(key, list[i].id)) i++;
+  if (i >= list.length) return;   // everything parked is mid-edit: wait for you.
+  var next = list.splice(i, 1)[0];
   if (!list.length) delete queuedMsgs[key];
   repaintQueued();
   send(next.wire, next.atts);

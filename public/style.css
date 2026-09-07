@@ -4567,3 +4567,54 @@ body {
   .firstrun-btn { width: 100%; }
   .firstrun-row.end .firstrun-btn { width: auto; }
 }
+
+/* ---- Editing a parked message ------------------------------------------------
+   A queued message is a thought you had thirty seconds into a turn, so it is often
+   wrong by the end of one. The chip label is therefore a button (the whole label,
+   so it is a thumb-sized target that does not compete with the ×), and opening it
+   swaps the chip for a real textarea on its own row — .queued-list wraps, and this
+   claims the full width. While it is open the queue treats it as not-ready and
+   drains around it; see flushQueued in js/tray.js. */
+.queued-chip .qc-text {
+  font: inherit; color: inherit;
+  background: none; border: 0; padding: 0;
+  cursor: pointer; text-align: left;
+}
+.queued-chip .qc-text:hover { text-decoration: underline; }
+
+.queued-edit {
+  flex: 1 1 100%;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-md);
+  background: var(--accent-dim);
+  padding: 7px 8px;
+}
+.qe-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--accent-text);
+  margin-bottom: 6px;
+}
+.qe-atts { margin-left: auto; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.qe-input {
+  display: block; width: 100%; box-sizing: border-box;
+  font: inherit; font-size: 13.5px; line-height: 1.45;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  padding: 6px 8px;
+  resize: vertical;
+}
+.qe-input:focus { outline: 2px solid var(--accent-line); outline-offset: -1px; }
+.qe-row { display: flex; gap: 6px; margin-top: 6px; }
+.qe-btn {
+  font: inherit; font-size: 12px; font-weight: 500;
+  padding: 5px 10px;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  cursor: pointer;
+}
+.qe-btn:active { transform: translate(1px, 1px); }
+.qe-btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.qe-btn.danger { color: var(--error); }
+/* Remove sits away from Save/Cancel so a mis-tap cannot discard what you typed. */
+.qe-btn.danger { margin-right: auto; }

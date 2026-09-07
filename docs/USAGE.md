@@ -45,6 +45,21 @@ from your phone to your laptop, or lose Wi-Fi entirely — you reattach to the s
 turn and get its ending. Finished turns are kept for about ten minutes so a phone
 that was asleep can still collect the result.
 
+**Type ahead while a turn runs.** The composer stays live during a turn: press send
+and the message is *parked* rather than refused, and it goes out the moment the turn
+ends. Parked messages appear as chips above the composer.
+
+**A parked message can be edited before it sends.** Tap the chip to open it — the
+reason you queued it is that you were thinking ahead, and a thought you had thirty
+seconds into a turn is often wrong by the end of it. While the editor is open that
+message is held back, but the queue does **not** stall: if there are messages behind
+it, the next ready one goes instead and the one you are editing keeps its place.
+Close the editor and it sends as soon as nothing else is running.
+
+- **Enter** saves, **Shift+Enter** is a newline, **Escape** discards the edit
+- **Remove** takes it out of the queue and puts the text back in the composer
+- Emptying the text removes it rather than sending a blank message
+
 **Background agents keep the turn alive.** If the agent spawns background subagents,
 the turn does not end at the first result — it keeps going until they finish, the
 same way the terminal behaves. Bounded by `PLUMI_BACKGROUND_WAIT_MS` (idle) and
