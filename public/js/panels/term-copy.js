@@ -49,7 +49,7 @@ function readRow(line, cols, cell) {
   return { text, after, wrapped: !!line.isWrapped };
 }
 
-/* Every http(s) link in the last rows of the buffer, newest first.
+/* Every http(s) link in `rows`, and where each of its pieces sits.
    A long URL is almost never on one row. Either the terminal wrapped it — the
    next row says isWrapped, which is easy — or the PROGRAM did: Claude Code draws
    with Ink, which hard-breaks a long word at the width of its box and carries on
@@ -59,22 +59,23 @@ function readRow(line, cols, cell) {
    edge (Claude's auth box has padding 1, so its pieces end at cols-1) or the edge of
    a box padded the same on both sides AND the next row holds nothing but URL
    characters. That last AND is what keeps a URL which happens to end near the edge
-   from swallowing the first word of the prose line under it. */
-export function findLinks(term, maxRows) {
-  const buf = term.buffer.active, cols = term.cols, cell = buf.getNullCell();
-  const rows = [];
-  for (let y = Math.max(0, buf.length - (maxRows || 400)); y < buf.length; y++) {
-    const line = buf.getLine(y);
-    rows.push(line ? readRow(line, cols, cell) : { text: "", after: [], wrapped: false });
-  }
+   from swallowing the first word of the prose line under it.
+
+   One walk, two readers. findLinks wants the joined URLs; screenText wants to know
+   which rows the pieces came from, so it can put them back together. They used to
+   disagree: the link card came out whole while the Screen text under it kept a line
+   break and an indent at every wrap — and selecting the URL out of THAT, the obvious
+   move on a phone, put a link on the clipboard no browser will open. */
+function joinLinks(rows, cols) {
   const claimed = rows.map(() => 0);        // leading characters already used as a continuation
-  const found = [];
+  const links = [];
   rows.forEach(function (row, r) {
     URL_START.lastIndex = 0;
     let m;
     while ((m = URL_START.exec(row.text))) {
       if (m.index < claimed[r]) continue;
       let url = m[0], at = r, end = m.index + url.length, breakCol = -1, lead = -1;
+      const pieces = [];
       while (at + 1 < rows.length && end === contentEnd(rows[at].text)) {
         const next = rows[at + 1];
         const start = next.wrapped ? 0 : contentStart(next.text);
@@ -94,11 +95,31 @@ export function findLinks(term, maxRows) {
         }
         url += run[0];
         claimed[at + 1] = stop;
+        pieces.push({ row: at + 1, from: start, to: stop, soft: next.wrapped });
         end = stop;
         at++;
       }
-      found.push(url.replace(/[.,;:!?]+$/, ""));  // sentence punctuation is not part of it
+      links.push({ url: url, row: r, to: m.index + m[0].length, pieces: pieces });
     }
+  });
+  return links;
+}
+
+// The last `maxRows` rows of the buffer, read the way joinLinks needs them.
+function bufferRows(term, maxRows) {
+  const buf = term.buffer.active, cols = term.cols, cell = buf.getNullCell();
+  const rows = [];
+  for (let y = Math.max(0, buf.length - maxRows); y < buf.length; y++) {
+    const line = buf.getLine(y);
+    rows.push(line ? readRow(line, cols, cell) : { text: "", after: [], wrapped: false });
+  }
+  return rows;
+}
+
+// Every http(s) link in the last rows of the buffer, newest first.
+export function findLinks(term, maxRows) {
+  const found = joinLinks(bufferRows(term, maxRows || 400), term.cols).map(function (l) {
+    return l.url.replace(/[.,;:!?]+$/, "");  // sentence punctuation is not part of it
   });
   const seen = new Set(), out = [];
   for (let i = found.length - 1; i >= 0; i--) {
@@ -107,35 +128,80 @@ export function findLinks(term, maxRows) {
   return out;
 }
 
-// The whole buffer as plain text, with the terminal's own soft wraps undone and
-// every run of empty rows squeezed to one: a full-screen program leaves most of
-// the screen blank, and the sheet opened on a black box with tmux's status line at
-// the foot. Under tmux this is the screen and nothing more — tmux runs on the
-// alternate screen, and the alternate screen keeps no scrollback.
+// The whole buffer as plain text: the terminal's own soft wraps undone, every link a
+// PROGRAM broke across rows put back together on the row it started on, and every
+// run of empty rows squeezed to one — a full-screen program leaves most of the screen
+// blank, and the sheet opened on a black box with tmux's status line at the foot.
+// Under tmux this is the screen and nothing more — tmux runs on the alternate screen,
+// and the alternate screen keeps no scrollback.
 export function screenText(term) {
-  const buf = term.buffer.active, lines = [];
-  for (let y = 0; y < buf.length; y++) {
-    const line = buf.getLine(y);
-    if (!line) continue;
-    const next = buf.getLine(y + 1);
-    const text = line.translateToString(!(next && next.isWrapped));  // keep a space that sits on the wrap
-    if (line.isWrapped && lines.length) lines[lines.length - 1] += text;
-    else if (text.trim() || (lines.length && lines[lines.length - 1].trim())) lines.push(text);
+  const rows = bufferRows(term, Infinity);
+  const text = rows.map(function (row) { return row.text; });
+  const moved = rows.map(function () { return false; });   // gave its piece to the row above
+  const shift = rows.map(function () { return 0; });       // characters taken off its front
+  joinLinks(rows, term.cols).forEach(function (l) {
+    // Where the link currently ends, in the CURRENT text of the row holding it. A row
+    // only ever donates before it hosts (links are walked top-down), so `shift` is all
+    // the bookkeeping a later link starting on a donor row needs.
+    let tail = l.row, tailAt = l.to - shift[l.row];
+    l.pieces.forEach(function (p) {
+      if (p.soft) { tail = p.row; tailAt = p.to - shift[p.row]; return; }  // isWrapped joins these below
+      const piece = rows[p.row].text.slice(p.from, p.to);
+      text[tail] = text[tail].slice(0, tailAt) + piece + text[tail].slice(tailAt);
+      tailAt += piece.length;
+      text[p.row] = text[p.row].slice(0, p.from - shift[p.row]) + text[p.row].slice(p.to - shift[p.row]);
+      shift[p.row] += p.to - p.from;
+      moved[p.row] = true;
+    });
+  });
+  const lines = [];
+  for (let y = 0; y < rows.length; y++) {
+    const s = text[y];
+    if (moved[y] && contentStart(s) === s.length) continue;   // nothing left of it but its indent
+    const keepEnd = y + 1 < rows.length && rows[y + 1].wrapped;
+    const t = keepEnd ? s : s.replace(/\s+$/, "");            // keep a space that sits on the wrap
+    if (rows[y].wrapped && lines.length) lines[lines.length - 1] += t;
+    else if (t.trim() || (lines.length && lines[lines.length - 1].trim())) lines.push(t);
   }
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
   return lines.join("\n");
 }
 
-// A drag across a URL the program wrapped comes out as several indented lines.
-// When every line is nothing but URL characters and the first one starts a URL,
-// it was one URL: give it back whole. Anything else is copied exactly as selected.
+// A hard wrap only happens to a link longer than its box, and no box anyone reads is
+// narrower than this. It is what stops "…/done" with a one-word line under it from
+// being glued into one token. The geometric joins above do not need it.
+const MIN_WRAPPED_LINK = 24;
+const LINK_TAIL = new RegExp("https?://[" + URL_CHARS + "]+$");
+
+// Text that went through a selection — a drag in the terminal, or a thumb in the
+// sheet's screen text — comes out with a line break wherever the program wrapped a
+// URL. Glue a line back on when it is nothing but URL characters and the text above
+// it ends INSIDE a long link, whatever stood in front of that link on its own line:
+// a label ("URL: https://…"), a CJK prefix, a drag that started a word early. The old
+// rule wanted the very first line to start with https:// and every line to be URL,
+// so a label in front — or a line of prose after — kept every break. Lines that were
+// not glued come back untouched; a selection with nothing to glue comes back as it was.
 export function tidyCopy(text) {
-  const lines = String(text || "").split(/\r?\n/).map(function (l) { return l.slice(contentStart(l), contentEnd(l)); });
-  while (lines.length && !lines[lines.length - 1]) lines.pop();
-  if (lines.length > 1 && /^https?:\/\//.test(lines[0]) && lines.every(function (l) { return URL_WHOLE.test(l); })) {
-    return lines.join("");
-  }
-  return text;
+  const raw = String(text || "");
+  const out = [];
+  let glued = false;
+  raw.split(/\r?\n/).forEach(function (line) {
+    const body = line.slice(contentStart(line), contentEnd(line));
+    if (out.length && body && URL_WHOLE.test(body)) {
+      const prev = out[out.length - 1];
+      const head = prev.slice(contentStart(prev), contentEnd(prev));
+      const link = LINK_TAIL.exec(head);
+      if (link && link[0].length >= MIN_WRAPPED_LINK) {
+        out[out.length - 1] = head + body;
+        glued = true;
+        return;
+      }
+    }
+    out.push(line);
+  });
+  if (!glued) return raw;
+  while (out.length && !out[out.length - 1].trim()) out.pop();
+  return out.join("\n");
 }
 
 // \e]52;<targets>;<base64>\a → the text, or null. A payload of "?" asks to READ
@@ -241,6 +307,16 @@ export function openCopySheet(term, lastCopy) {
     pre.className = "term-copy-text";
     pre.textContent = text || "Nothing on screen yet.";
     box.appendChild(pre);
+    // The browser copies a DOM selection by itself, so tidy it on the way out.
+    // screenText already joins every link the geometry can prove; this catches what
+    // it cannot — a partial selection, a layout the walk did not recognise.
+    pre.addEventListener("copy", function (e) {
+      const sel = window.getSelection ? String(window.getSelection()) : "";
+      const tidy = tidyCopy(sel);
+      if (!sel || tidy === sel || !e.clipboardData) return;
+      e.clipboardData.setData("text/plain", tidy);
+      e.preventDefault();
+    });
     if (text) sheetNote(box, "Select any part of it, or copy the lot.");
     const row = sheetActions(box);
     if (text) copyButton(row, text, accent, "Copy all");
