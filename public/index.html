@@ -497,7 +497,9 @@
            "do you trust this folder?", the model picker, plan approval — are all
            driven by arrows plus Enter, so without these the terminal is unusable
            on a phone: you cannot get past the first question. Each button writes
-           the raw escape sequence straight down the same socket as typing. -->
+           the raw escape sequence straight down the same socket as typing — all
+           but "copy", which opens the copy sheet: xterm paints its own text, so
+           there is nothing in the terminal a thumb can select. -->
       <div class="term-keys" id="termKeys" hidden role="group" aria-label="Terminal keys">
         <button type="button" data-k="&#x1b;[A" aria-label="Up">↑</button>
         <button type="button" data-k="&#x1b;[B" aria-label="Down">↓</button>
@@ -508,6 +510,7 @@
         <button type="button" data-k="&#x1b;[Z" aria-label="Shift Tab">⇤</button>
         <button type="button" data-k="&#x1b;" aria-label="Escape" class="wide">esc</button>
         <button type="button" data-k="&#x03;" aria-label="Control C" class="wide danger">^C</button>
+        <button type="button" id="termCopy" aria-label="Copy from the terminal" class="wide">copy</button>
       </div>
     </aside>
   </div>

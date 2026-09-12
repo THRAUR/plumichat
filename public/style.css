@@ -1469,8 +1469,12 @@
 @keyframes tk-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 .thinking .tk-body { padding: 3px 12px 11px; border-top: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; }
 /* Toasts hang off .app, whose height is the keyboard-aware --app-h, so the strip
-   rides up with the composer instead of being buried under the on-screen keys. */
-.toast-wrap { position:absolute; left:0; right:0; bottom:calc(86px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; z-index:60; }
+   rides up with the composer instead of being buried under the on-screen keys.
+   z-index 72 puts them over every window (terminal, file browser and notepad at 61,
+   the sheet at 71) and under the command palette (89/90). At 60 a toast raised from
+   inside a window was painted beneath it — and on a phone, where those windows fill
+   the screen, it simply never appeared. */
+.toast-wrap { position:absolute; left:0; right:0; bottom:calc(86px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; z-index:72; }
 .toast { background:var(--surface-3); border:1px solid var(--line-strong); color:var(--text); font-size:13px; padding:9px 14px; border-radius: var(--r-md); box-shadow: var(--shadow-win); opacity:0; transform:translateY(8px); transition:opacity .2s ease, transform .2s ease; max-width:90%; }
 .toast.show { opacity:1; transform:none; }
 .toast.err { color:var(--error); border-color:var(--error-line); }
@@ -3395,6 +3399,40 @@ body.embed .sidebar-resizer { display: none !important; }
 .term-keys button.wide { flex: 1.4 1 0; font-size: 13px; }
 .term-keys button.danger { color: var(--error); border-color: var(--error-line); }
 .term-keys button.danger:active { background: var(--error-dim); color: var(--error); }
+
+/* ---------- Terminal copy sheet (js/panels/term-copy.js) ----------
+   The terminal paints its own text, so none of it can be long-pressed. The sheet
+   hands the same text back as plain DOM a thumb can select. */
+.term-copy-item {
+  margin-top: 8px; padding: 10px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.term-copy-value {
+  font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--text);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  /* A sign-in URL runs to 400+ characters; three lines is enough to tell which. */
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+.term-copy-item .sheet-actions { margin-top: 8px; }
+.term-copy-text {
+  margin: 8px 0 0; max-height: min(40vh, 320px); overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--code-line); border-radius: var(--r-sm);
+  background: var(--code-bg); color: var(--code-text);
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+  /* break-all, not overflow-wrap:anywhere — a row that starts with a space (every
+     row of Claude's padded box does) otherwise breaks straight after it, and a phone
+     shows each row as an empty line, a full line and a two-letter stub. */
+  white-space: pre-wrap; word-break: break-all;
+  -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
+}
+/* On a phone the terminal fills the screen and its key bar is two rows (~103px),
+   so a toast at the usual height lands on ← → ⏎ — and "Tap to copy the link"
+   would sit on ⏎ exactly when Claude Code says to press Enter. */
+@media (max-width: 560px) {
+  .app:has(.term-modal.open) .toast-wrap { bottom: calc(115px + env(safe-area-inset-bottom)); }
+}
 
 /* ===================== Phone: no focus zoom ==========================
    iOS Safari zooms the whole page in when you focus a text control whose

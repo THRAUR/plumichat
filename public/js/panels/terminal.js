@@ -3,6 +3,7 @@ import { $, toast } from '../dom.js';
 import { closeDrawer } from '../library.js';
 import { relTime } from './notepad.js';
 import { confirmSheet } from '../sheet.js';
+import { copyKey, decodeOsc52, deliverCopy, openCopySheet } from './term-copy.js';
 
 /* ===================== Terminal (owner-only) =========================== */
 // A real interactive shell on the box, streamed over a WebSocket (/terminal) and
@@ -41,6 +42,13 @@ export function initTerminal() {
     var pending = [];        // input queued until the socket is open (e.g. Design sync)
     var targetCwd = "";      // design-system dir, for the Design sync button
     var sessionCwd = "";     // folder THIS shell was spawned in (re-sent so reconnects land right)
+    // Copying out (term-copy.js). Every attached device receives a program's OSC 52
+    // copy, so it only reaches the clipboard of the one that typed in the last few
+    // seconds — and never from the replay that catches a reconnect up, which would
+    // re-copy something from hours ago over whatever is on your clipboard now.
+    var lastInputAt = 0, lastCopy = null;   // lastCopy: { text, at }, offered again in the copy sheet
+    var expectReplay = false, replaying = false;
+    var COPY_WINDOW = 10000;
 
     function setConn(state, label) {
       if (!conn) return;
@@ -74,8 +82,28 @@ export function initTerminal() {
       if (FitCtor) { fit = new FitCtor(); term.loadAddon(fit); }
       term.open(surface);
       term.onData(function (d) {
+        // While a replay is parsed, xterm answers the queries IN it — tmux's start-up
+        // device-attribute requests among them. Those were answered long ago by
+        // whoever was attached then; answering again typed "1;2c0;276;0c" into
+        // whatever was running (the shell, or Claude Code's prompt) on a re-attach.
+        if (replaying) return;
         if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ t: "i", d: d })); } catch (e) {} }
       });
+      // Typing into THIS window (see lastInputAt). Read from the DOM rather than
+      // onData, because xterm also answers the terminal's own queries through onData.
+      ["keydown", "input", "paste"].forEach(function (type) {
+        surface.addEventListener(type, function () { lastInputAt = Date.now(); }, true);
+      });
+      // A program copying (OSC 52) — Claude Code's own `c` to copy, relayed by tmux.
+      term.parser.registerOscHandler(52, function (data) {
+        var text = decodeOsc52(data);
+        if (!text || replaying) return true;
+        lastCopy = { text: text, at: Date.now() };
+        if (Date.now() - lastInputAt < COPY_WINDOW) deliverCopy(text);
+        return true;
+      });
+      // Ctrl+C / Ctrl+Shift+C / ⌘C copy a selection instead of reaching the shell.
+      term.attachCustomKeyEventHandler(function (e) { return copyKey(term, e); });
       if (window.ResizeObserver) { ro = new ResizeObserver(function () { fitNow(); }); ro.observe(surface); }
     }
 
@@ -88,6 +116,7 @@ export function initTerminal() {
     function connect() {
       if (reconnectT) { clearTimeout(reconnectT); reconnectT = null; }
       teardownWs();
+      expectReplay = false;
       if (term) term.reset(); // clean slate so the server's replay paints cleanly
       var proto = location.protocol === "https:" ? "wss://" : "ws://";
       // ?cwd is honoured only when the server has NO live session yet (fresh spawn);
@@ -113,10 +142,19 @@ export function initTerminal() {
           // Before this, a shell that had survived a server restart (tmux keeps
           // it) and a brand-new empty one looked identical — you could type into
           // a fresh shell believing your work was still there.
-          else if (m && m.t === "info") onInfo(m);
+          else if (m && m.t === "info") { onInfo(m); expectReplay = !!m.reattached; }
           return;
         }
-        if (term) term.write(new Uint8Array(ev.data)); // raw PTY bytes
+        if (!term) return;
+        // After a re-attach greeting the next binary frame is the server's replay of
+        // recent output (attachClient). Parse it with OSC 52 copying, and xterm's
+        // answers to the queries inside it, switched off (see onData above).
+        if (expectReplay) {
+          expectReplay = false; replaying = true;
+          term.write(new Uint8Array(ev.data), function () { replaying = false; });
+        } else {
+          term.write(new Uint8Array(ev.data)); // raw PTY bytes
+        }
       };
       ws.onclose = function () {
         ws = null;
@@ -356,6 +394,7 @@ export function initTerminal() {
         var b = e.target.closest("button[data-k]");
         if (!b) return;
         e.preventDefault();          // keep focus (and the keyboard) on the terminal
+        lastInputAt = Date.now();
         var d = b.getAttribute("data-k");
         if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ t: "i", d: d })); } catch (err) {} }
         else pending.push(d);
@@ -363,6 +402,17 @@ export function initTerminal() {
       });
     }
     function showKeys(on) { if (keysBar) keysBar.hidden = !on; }
+
+    // "copy" is not a key and has no data-k, so the pointerdown above ignores it. It
+    // opens the copy sheet on CLICK: a sheet opened on pointerdown would catch the
+    // lifted finger on its own overlay and close again. Blurring the terminal puts
+    // the phone keyboard away so it is not sitting over the sheet.
+    var copyBtn = document.getElementById("termCopy");
+    if (copyBtn) copyBtn.addEventListener("click", function () {
+      if (!term) return;
+      openCopySheet(term, lastCopy);
+      try { term.blur(); } catch (err) {}
+    });
 
     /* A terminal-only slash command picked from the chat palette (see
        panels/commands.js). It cannot run in the chat engine, so it arrives here
