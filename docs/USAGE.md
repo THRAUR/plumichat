@@ -190,6 +190,19 @@ service may reject pushes signed with a bogus one.
   keyboard has none of these, and Claude Code's own prompts — "do you trust this
   folder?", the model picker, plan approval — are all arrow-driven. Without it the
   terminal cannot get past its first question on a phone.
+- **Copying out.** The terminal paints its own text, so on a phone there is nothing
+  to long-press. The **copy** key on the key bar opens a sheet with the links on
+  screen — put back together even where the program broke them across rows, each
+  with Copy and Open — whatever a program just copied (Claude Code's own `c` beside
+  a sign-in link lands here), and the screen as plain text you can select. On a
+  desktop, Ctrl+C copies a selection instead of interrupting, Ctrl+Shift+C never
+  interrupts, and ⌘C works on a Mac. A program's copy only reaches the device you
+  were typing on; Safari allows a clipboard write only during a tap, so on an iPhone
+  it arrives as a **Tap to copy** notice.
+- **Signing an MCP server in from a phone.** Approving sends your browser back to a
+  `localhost` address, and on a phone that page cannot load — `localhost` there is
+  the phone, not this machine. That is expected: copy the address of the failed page
+  and paste it into the terminal, which accepts it in place of the redirect.
 
 Owner-only, because it is an **unsandboxed** shell. Admins do not get it.
 

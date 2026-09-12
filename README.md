@@ -79,7 +79,8 @@ go via the share sheet.
 - Optional single sign-on for sister apps on the same host
 
 **The machine**
-- **Terminal** — a real shell over WebSocket, inside tmux so it survives a restart
+- **Terminal** — a real shell over WebSocket, inside tmux so it survives a restart,
+  with a copy sheet that gets text out on a phone (long sign-in links come out whole)
 - **Operations** — an autonomous task board: worktree run → reviewable patch → human
   approval → verify and ship
 - **Sites** — every website this machine is hosting, discovered live

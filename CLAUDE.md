@@ -92,6 +92,15 @@ that way.
 binary; never infer from `process.platform`. If a feature can be unavailable, give
 it a row in `server/capabilities.js` with a `reason` a human can act on.
 
+**Copying out of the terminal goes through one walk: `joinLinks` in
+`public/js/panels/term-copy.js`.** The link cards and the selectable screen text both
+read Ink's hard-wrapped rows through it. They shipped as two walks that disagreed: a
+sign-in URL was whole on its card while the screen text under it kept a line break and
+an indent at every wrap, and selecting it there — the obvious move on a phone — copied
+a link no browser will open. `tidyCopy` glues a URL-only line onto a line that ends
+inside a link of 24+ characters; the floor is what keeps `…/done` above a one-word
+line as two lines.
+
 ## Wire-protocol pairs
 
 These are matched. Rename one half and downloads or notification tap-through fail
