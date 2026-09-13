@@ -43,13 +43,18 @@ function defaultModel() {
   return process.env.CLAUDE_MODEL || 'sonnet';
 }
 
-// How long a turn may go COMPLETELY silent after its first `result` while
-// background work is still pending (see the H1 loop below), and the absolute
-// ceiling on that wait. Two timers in one: the idle timer is rearmed by every
-// message, so a task that heartbeats forever without ever finishing would keep a
-// conversation open indefinitely — the ceiling is what makes termination certain.
+// Deadlines for the part of a turn that comes AFTER its first `result` (see the
+// input stream and the loop below). Measured on CLI 2.1.269: background work is
+// silent — a 40-second background `sleep` produced no traffic at all — so silence
+// while a task is still running means nothing, and that wait is bounded only by
+// BACKGROUND_MAX_MS from the first result. BACKGROUND_WAIT_MS is the silence
+// allowed once the input has been closed and the CLI is winding down; longer than
+// that and it is wedged. BACKGROUND_SETTLE_MS covers the one gap left — the work
+// finished but no continuation turn started (the CLI normally opens one within
+// milliseconds) — by closing the input so the session can end on its own.
 const BACKGROUND_WAIT_MS = Math.max(10_000, Number(process.env.PLUMI_BACKGROUND_WAIT_MS) || 15 * 60 * 1000);
 const BACKGROUND_MAX_MS = Math.max(BACKGROUND_WAIT_MS, Number(process.env.PLUMI_BACKGROUND_MAX_MS) || 60 * 60 * 1000);
+const BACKGROUND_SETTLE_MS = 60 * 1000;
 
 // thinking_tokens fires many times a second; tool_progress heartbeats every few
 // seconds per tool. Both are pure progress chrome, so they're throttled before
@@ -457,7 +462,33 @@ export async function runPrompt({
   if (sessionId) options.resume = sessionId;
   if (abortController) options.abortController = abortController;
 
-  const q = query({ prompt, options });
+  // The prompt goes in as an OPEN input stream, never as a string. This is the whole
+  // difference between background work surviving the end of a reply and being killed
+  // by it. A string prompt is a one-shot run: the SDK closes the CLI's stdin straight
+  // after sending it, and on closed input the CLI kills every background task shortly
+  // after the reply's result — its own documented rule ("hold-back tasks are still
+  // killed when the held result is released"). Measured on CLI 2.1.269 with a
+  // background `sleep 40`: string prompt → `killed` about five seconds after the
+  // result, whatever we did afterwards; open input → the command finished, the CLI
+  // opened a turn by itself and reported it. That is how "I'll be notified when it's
+  // done" kept turning into a command stopped half-way and a person prompting again
+  // hours later. Background COMMANDS, not subagents, were the common case.
+  //
+  // The stream yields the one message and then waits until we close it, which we do
+  // the moment nothing is left running (endInput). Closing it lets the CLI finish what
+  // it already has queued and exit, and that ends the loop below by itself — so the
+  // loop is DRAINED, never broken out of: a notification that landed just before the
+  // last result gets a short turn of its own, and breaking would cut its text off.
+  // `session_id` is required by the type and ignored on input; the verified probe
+  // sent it empty, and so does this.
+  let inputOpen = true, releaseInput = null;
+  const inputReleased = new Promise((resolve) => { releaseInput = resolve; });
+  const endInput = () => { if (inputOpen) { inputOpen = false; releaseInput(); } };
+  const input = (async function* () {
+    yield { type: 'user', message: { role: 'user', content: prompt }, parent_tool_use_id: null, session_id: '' };
+    await inputReleased;
+  })();
+  const q = query({ prompt: input, options });
   let knownSession = sessionId || null;
   // Model provenance, two grades:
   //   'init' — the model the SDK *configured* the session with (an echo of our
@@ -481,43 +512,58 @@ export async function runPrompt({
   const edgeOpen = new Set(); // task ids started but not yet notified (pre-level fallback)
   const ambientIds = new Set(); // ids to keep out of the UI tray (task_updated carries no flag)
   const pendingTasks = () => (bgLevelSeen ? bgLevel : edgeOpen.size);
+  // A Monitor the model starts is NOT ambient (measured: task_type local_bash,
+  // ambient false), so it is counted — correctly: its events are what the person is
+  // waiting for. Is the model mid-turn? True until a `result`, and again from the
+  // first sign of a continuation turn (the CLI opens one with a fresh `init`).
+  let turnActive = true;
 
   // Throttle state for the pure-progress streams (see the constants up top).
   let lastThinkTokens = 0, lastToolProgress = 0, limitsSig = '';
 
-  // Safety valve for the "keep iterating after result" path below. Two deadlines,
-  // whichever comes first: silence (idle) and an absolute ceiling from the first
-  // result. Both are unref()'d so a pending timer can never hold the server open,
-  // and the timer is cleared unconditionally in the finally block.
-  // `stalled` doubles as the valve's verdict: null while healthy, otherwise the
-  // honest end reason, which runPrompt hands back to runs.js so the turn can end
-  // as "Ended: a background agent stopped responding after 15 minutes" instead of
-  // the bare "Stopped" that reads as if the user had pressed Stop themselves.
+  // The deadlines for everything after the first `result` (constants up top). One
+  // timer, re-chosen after every message, because which deadline applies depends on
+  // the state that message left behind:
+  //   - input closed: the CLI is winding down; BACKGROUND_WAIT_MS of silence and it is
+  //     wedged, so end it;
+  //   - background work still running: silence is normal, so only the absolute
+  //     ceiling from the first result applies;
+  //   - work finished, no turn running: the CLI normally opens a continuation turn
+  //     within milliseconds; if BACKGROUND_SETTLE_MS pass without one, close the input
+  //     so the session ends on its own — no abort, the turn simply finished.
+  // Unref'd so a pending timer can never hold the server open, and cleared
+  // unconditionally in the finally block. `stalled` is the verdict of the two
+  // deadlines that DO abort: null while healthy, otherwise the honest end reason,
+  // which runPrompt hands back to runs.js so the turn can end as "Ended: background
+  // work was still running after 1 hour" instead of the bare "Stopped" that reads as
+  // if the user had pressed Stop themselves.
   let waitTimer = null, waitUntil = 0, stalled = null;
   const clearWait = () => { if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; } };
+  const stall = (reason) => {
+    stalled = { reason };
+    onEvent({ type: 'notice', phase: 'done', text: `Ended: ${reason}.` });
+    endInput();
+    // abortController is the caller's stop handle and the path runs.js reads;
+    // close() is the fallback for a caller that supplied none, so the iterator
+    // still ends and the turn can never hang.
+    try { if (abortController) abortController.abort(); else q.close?.(); } catch { /* already gone */ }
+  };
   const armWait = () => {
     clearWait();
-    const left = waitUntil - Date.now();
-    // Which of the two deadlines is this timer? The ceiling, once what's left of
-    // it is shorter than a full silence window; the idle timer until then. Decided
-    // here rather than at fire time so the reason can never be mislabelled by a
-    // few milliseconds of drift.
-    const ceiling = left <= BACKGROUND_WAIT_MS;
-    waitTimer = setTimeout(() => {
-      // Nothing has arrived in a long time (or we've waited as long as we ever
-      // will): a wedged background task must not hold the conversation open
-      // forever. Say so, then abort — the catch below stays quiet on abort.
-      stalled = {
-        reason: ceiling
-          ? `background work was still running after ${humanMs(BACKGROUND_MAX_MS)}`
-          : `a background agent stopped responding after ${humanMs(BACKGROUND_WAIT_MS)}`,
-      };
-      onEvent({ type: 'notice', phase: 'done', text: `Ended: ${stalled.reason}.` });
-      // abortController is the caller's stop handle and the path runs.js reads;
-      // close() is the fallback for a caller that supplied none, so the iterator
-      // still ends and the turn can never hang.
-      try { if (abortController) abortController.abort(); else q.close?.(); } catch { /* already gone */ }
-    }, Math.max(1000, Math.min(BACKGROUND_WAIT_MS, left)));
+    let ms, fire;
+    if (!inputOpen) {
+      ms = BACKGROUND_WAIT_MS;
+      fire = () => stall(`the session did not close within ${humanMs(BACKGROUND_WAIT_MS)} of its work finishing`);
+    } else if (waitUntil && pendingTasks() > 0) {
+      ms = waitUntil - Date.now();
+      fire = () => stall(`background work was still running after ${humanMs(BACKGROUND_MAX_MS)}`);
+    } else if (waitUntil && !turnActive) {
+      ms = BACKGROUND_SETTLE_MS;
+      fire = () => { endInput(); armWait(); };
+    } else {
+      return;   // mid-turn, or before the first result: no deadline applies
+    }
+    waitTimer = setTimeout(fire, Math.max(1000, ms));
     waitTimer.unref?.();
   };
 
@@ -527,6 +573,10 @@ export async function runPrompt({
       // message handlers below re-arm it if we're still waiting on background work.
       clearWait();
       if (stalled) break; // the valve already fired; don't start another wait
+      // A continuation turn announces itself with a fresh `init`; model output and
+      // tool traffic also mean a turn is running. Background bookkeeping does not.
+      if (message.type === 'assistant' || message.type === 'stream_event' || message.type === 'user'
+          || (message.type === 'system' && message.subtype === 'init')) turnActive = true;
       if (!knownSession && message && message.session_id) {
         knownSession = message.session_id;
         onEvent({ type: 'session', sessionId: knownSession });
@@ -613,38 +663,30 @@ export async function runPrompt({
             cacheWrite: usage.cache_creation_input_tokens || 0,
           } : null,
         });
-        // 'result' is the turn's terminal message, but it is NOT necessarily the
-        // end of the work. Breaking here calls the generator's return(), which
-        // closes the CLI's stdin — and that kills every background subagent,
-        // monitor and scheduled wake-up the process owns, which is exactly why a
-        // paused agent never picked itself back up the way it does in the terminal
-        // (audit H1). Verified behaviour: keep iterating and the CLI delivers the
-        // task_notification and AUTO-CONTINUES the conversation itself, ending in
-        // a second result.
+        // 'result' ends a TURN, not necessarily the work. With background work still
+        // running we stay on the line with the input open: when it settles the CLI
+        // delivers the task_notification and opens a turn by itself, ending in another
+        // result (the input stream above says why the input has to be open). With
+        // nothing running, close the input and let the loop drain to its end.
         //
-        // So: finish only on a result with no background work left. Otherwise stay
-        // on the line, tell the client we're waiting, and arm the safety valve.
-        // (Supplying canUseTool puts the SDK in streaming-input mode, where the
-        // iterator does not reliably self-close — so the break is still what ends
-        // a normal turn; without it the `for await` would hang and 'done' would
-        // never fire, leaving the UI stuck on "responding…".)
-        // No q.getContextUsage() here, tempting as it looks. A turn is started with
-        // a plain string prompt, which closes the child's stdin — so by the time
-        // `result` lands the control channel is already gone and the call fails with
-        // "Query closed before response received" (measured, both permission modes).
-        // The context ring is fed instead by the `usage` above: the SDK's own
-        // totalTokens is exactly input + cache_read + cache_creation of the last
-        // request (verified against getContextUsage on the same session), so a
-        // finished turn updates the ring for free and only the category breakdown
-        // needs the out-of-band read in context.js.
-        if (pendingTasks() === 0) break;
-        if (!waitUntil) waitUntil = Date.now() + BACKGROUND_MAX_MS;
-        onEvent({
-          type: 'waiting',
-          tasks: pendingTasks(),
-          text: `Waiting on ${pendingTasks()} background agent${pendingTasks() === 1 ? '' : 's'}…`,
-        });
-        armWait();
+        // No q.getContextUsage() here. It used to be impossible — a string prompt had
+        // already closed the child's stdin, so the call failed with "Query closed
+        // before response received" (measured, both permission modes). The input is
+        // open now, but the `usage` above is exact and free: the SDK's own totalTokens
+        // is input + cache_read + cache_creation of the last request (verified against
+        // getContextUsage on the same session), so a finished turn updates the ring
+        // without a round-trip and only the category breakdown needs context.js.
+        turnActive = false;
+        if (pendingTasks() === 0) {
+          endInput();
+        } else {
+          if (!waitUntil) waitUntil = Date.now() + BACKGROUND_MAX_MS;
+          onEvent({
+            type: 'waiting',
+            tasks: pendingTasks(),
+            text: `Waiting on ${pendingTasks()} background task${pendingTasks() === 1 ? '' : 's'}…`,
+          });
+        }
       } else if (message.type === 'system') {
         // Surface auto-compaction as a lightweight notice — never as a chat
         // message. 'status:compacting' marks the start; 'compact_boundary' the end.
@@ -761,12 +803,10 @@ export async function runPrompt({
         }
       }
 
-      // Once a result has landed with work still pending, the only clean exits
-      // left are a LATER result (the break above) or the iterator ending. Keep
-      // the valve armed for the whole of that window — not just while tasks are
-      // pending — because a task set that empties without the CLI auto-continuing
-      // would otherwise leave the `for await` blocked with no timer to save it.
-      if (waitUntil) armWait();
+      // Re-choose the deadline for the state this message left behind (armWait
+      // decides, and arms nothing mid-turn). Doing it after EVERY message is what
+      // guarantees the `for await` can never block with no timer left to end it.
+      armWait();
     }
   } catch (err) {
     turnFailed = true;
@@ -785,6 +825,9 @@ export async function runPrompt({
     // Unconditional: a live timer here would keep firing (and could abort a NEXT
     // turn's controller) long after this one is over.
     clearWait();
+    // Same for the input stream: a generator still parked on its promise would hold
+    // this turn in memory for nothing.
+    endInput();
     // THREE conditions, and every one of them earned its place:
     //   1. the turn actually FAILED — a clean answer has nothing to carry on;
     //   2. the ACCOUNT's own window says 'rejected'. NOT overageStatus: that

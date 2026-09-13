@@ -670,7 +670,7 @@ export function consumeStream(stream, project, responsePromise) {
         // Close off the answer that just landed so the resumed one starts its own
         // bubble (and takes its own cost badge), then say what we're waiting for.
         finalizeAssistant();
-        setStatus("working", ev.text || "Waiting on background agents…");
+        setStatus("working", ev.text || "Waiting on background tasks…");
       }
       return;
     }

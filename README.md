@@ -57,8 +57,8 @@ go via the share sheet.
 - **Question cards** from `AskUserQuestion`, as real buttons
 - **A turn outlives its HTTP request.** Refresh, switch devices, or drop off Wi-Fi
   and you reattach to the same turn and get its ending
-- **Background agents keep the turn alive**, so a session that spawns subagents
-  auto-continues exactly like the terminal
+- **Background work keeps the turn alive** — commands, watchers and subagents — and
+  the session picks itself back up when they finish, exactly like the terminal
 - Model picker from the CLI's own curated list, with effort levels and 1M-context
   variants
 - Context ring, Compact, Rewind files, Fork

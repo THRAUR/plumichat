@@ -39,16 +39,30 @@ request but not owned by it.
 turn, translating SDK messages into the event stream, and applying the member
 policy.
 
-### Keeping a turn alive across background agents
+### Keeping a turn alive across background work
 
-The first version broke out of the SDK message loop on the first `result`. That
-closed the CLI process — and took every background subagent with it. In the
-terminal, a session that spawns background work resumes itself; here it silently
-died the moment the main answer finished.
+The first version broke out of the SDK message loop on the first `result`, which
+closed the CLI process and took every background task with it. Keeping the loop
+alive after `result` was necessary — and not enough.
 
-The fix is to keep iterating while background tasks are pending, bounded by an idle
-deadline and an absolute ceiling. It is a small diff and it is the difference
-between "chat UI" and "the terminal, with buttons".
+The prompt was a *string*. A string prompt is a one-shot run: the SDK closes the
+CLI's stdin right after sending it, and on closed input the CLI kills background
+tasks shortly after the reply's result — its documented rule, measured at about five
+seconds. So a background command ("tell me when the download finishes") was stopped
+half-way whatever the loop did, and the person had to prompt again.
+
+The prompt is now an **open input stream**: an async generator that yields the one
+message and then waits. While background work runs, the turn waits with it; when the
+work settles, the CLI delivers the notification and opens a turn by itself. The
+moment nothing is left running, the server closes the input and **drains** the loop
+rather than breaking out of it, because a notification that landed just before the
+last result still gets a short turn of its own.
+
+Running work is silent — a 40-second background `sleep` produces no messages at all
+— so silence while a task runs means nothing. The wait is bounded by an absolute
+ceiling from the first result (`PLUMI_BACKGROUND_MAX_MS`), and by an idle deadline
+(`PLUMI_BACKGROUND_WAIT_MS`) only once the input is closed and the CLI is winding
+down. That is the difference between "chat UI" and "the terminal, with buttons".
 
 ---
 
@@ -71,14 +85,13 @@ Four things worth knowing if you touch it:
 - **File checkpointing is not retroactive.** Checkpoints are written by the process
   that ran the turn, so switching it on only helps from that turn forward. Rewind
   reports "no file checkpoint" for older turns rather than pretending.
-- **You cannot call `getContextUsage()` at the end of a turn.** A turn is started
-  with a *string* prompt, which closes the child's stdin — so the control channel is
-  already gone by the time `result` arrives. The ring is fed from that turn's
-  `usage` instead: `totalTokens` is exactly `input + cache_read + cache_creation` of
-  the last request.
-- Still genuinely blocked on a persistent per-conversation process: mid-turn
-  interrupt, live model switching, and queued input. Those need a query *during* the
-  turn.
+- **The context ring comes from each turn's `usage`, not `getContextUsage()`.**
+  `totalTokens` is exactly `input + cache_read + cache_creation` of the last request,
+  so it costs no round-trip. The call used to be impossible at `result` — the string
+  prompt had already closed the child's stdin — and the free path stayed after that
+  changed.
+- Not built yet: mid-turn interrupt, live model switching, and queued input. They
+  need a query *during* the turn, which the open input stream now provides.
 
 ---
 

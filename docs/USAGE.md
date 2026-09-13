@@ -69,10 +69,12 @@ Close the editor and it sends as soon as nothing else is running.
   the others rather than looking stuck. It expires after five minutes, so a tab you
   closed mid-edit cannot wedge the queue.
 
-**Background agents keep the turn alive.** If the agent spawns background subagents,
-the turn does not end at the first result — it keeps going until they finish, the
-same way the terminal behaves. Bounded by `PLUMI_BACKGROUND_WAIT_MS` (idle) and
-`PLUMI_BACKGROUND_MAX_MS` (absolute).
+**Background work keeps the turn alive.** If the agent starts a background command, a
+Monitor watcher or a background subagent, the turn does not end with its reply: it
+waits, and when the work finishes the agent picks the conversation back up by itself
+and tells you — the same way the terminal behaves. The tray shows what it is waiting
+on, and Stop ends the turn and the work together. Background work may keep a turn
+open for up to `PLUMI_BACKGROUND_MAX_MS` (1 hour) after its reply.
 
 ### The composer
 

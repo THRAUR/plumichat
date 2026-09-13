@@ -135,7 +135,7 @@ export function renderTaskTray() {
   // truncates, so a long phrase cannot push the count or Stop off the edge.
   ttl.textContent = (!trayOpen && waiting && waiting.text)
     ? waiting.text
-    : (rows.length ? "Background agents" : "Turn running");
+    : (rows.length ? "Background tasks" : "Turn running");
   toggle.appendChild(ttl);
   toggle.addEventListener("click", function () { trayOpen = !trayOpen; renderTaskTray(); });
   head.appendChild(toggle);
@@ -152,7 +152,7 @@ export function renderTaskTray() {
     stop.type = "button"; stop.className = "task-tray-stop";
     stop.textContent = "Stop";
     stop.setAttribute("aria-label", "Stop this turn");
-    stop.title = "Stop the whole turn, including its background agents";
+    stop.title = "Stop the whole turn, including its background tasks";
     stop.addEventListener("click", function () { stopCurrent(); });
     head.appendChild(stop);
   }

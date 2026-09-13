@@ -380,11 +380,12 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     } catch (err) {
       if (!run.errorMsg) run.errorMsg = err?.message || String(err);
     } finally {
-      // The background-wait safety valve fired: a background agent went silent (or
-      // the absolute ceiling hit) and claude.js aborted to end the turn. That IS an
-      // abort, so the status stays 'stopped' and the Continue button still shows —
-      // but it was not the user's Stop, and reporting it as a bare "Stopped" reads
-      // like they did it themselves. Their own Stop still wins if both happened.
+      // A background-work deadline fired: work was still running at the absolute
+      // ceiling, or the CLI never closed after its work had finished, and claude.js
+      // aborted to end the turn. That IS an abort, so the status stays 'stopped' and
+      // the Continue button still shows — but it was not the user's Stop, and
+      // reporting it as a bare "Stopped" reads like they did it themselves. Their own
+      // Stop still wins if both happened.
       if (outcome && outcome.stalled) run.stalled = true;
       // runPrompt swallows SDK errors (emits {type:'error'}) and is silent on
       // abort, so derive the final status here.

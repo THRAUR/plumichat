@@ -240,8 +240,8 @@ summary.
 | `PLUMI_MAX_RUNS` | `5` | Concurrent turns, all users. Each is a ~340 MB process. |
 | `PLUMI_MAX_RUNS_PER_USER` | `2` | Concurrent turns per account. |
 | `PLUMI_ASK_TIMEOUT_MS` | 30 min | How long an unanswered permission card blocks a turn. |
-| `PLUMI_BACKGROUND_WAIT_MS` | 15 min | Idle deadline while a turn waits on background agents. |
-| `PLUMI_BACKGROUND_MAX_MS` | 60 min | Absolute ceiling for the same. |
+| `PLUMI_BACKGROUND_WAIT_MS` | 15 min | Silence allowed while a finished turn closes down; longer and it is ended. |
+| `PLUMI_BACKGROUND_MAX_MS` | 60 min | How long background work may keep a turn open after its reply. |
 | `PLUMI_INVITE_TTL_DAYS` | `7` | Invite-link lifetime. |
 
 ### Notifications
