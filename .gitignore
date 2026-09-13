@@ -8,6 +8,9 @@ Thumbs.db
 # Environment / secrets
 .env
 .env.*
+# ...except the template: it holds no secrets, and docs/INSTALL.md tells everyone to
+# copy it. `.env.*` above had been hiding it, so the repo never actually shipped it.
+!.env.example
 *.local
 secrets.*
 
