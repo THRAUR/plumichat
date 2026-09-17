@@ -32,6 +32,9 @@ themselves unavailable.
 | **bubblewrap** (Linux) | member account confinement | `apt install bubblewrap` |
 | **pm2** | the in-app Restart button, and boot persistence | `npm i -g pm2` |
 | **C/C++ build tools** | the terminal panel (`node-pty` is a native module) | `build-essential` · Xcode CLT · VS Build Tools |
+| **nvidia-smi** | GPU figures on the machine card | Comes with the NVIDIA driver. WSL uses the Windows driver's copy, no install needed |
+| **LibreHardwareMonitor** (Windows, WSL) | CPU temperature on the machine card | See [CPU temperature on Windows and WSL](#cpu-temperature-on-windows-and-wsl-optional) |
+| **lm-sensors** (Linux) | CPU temperature, when no sensor shows up by itself | `apt install lm-sensors`, then `sudo sensors-detect` |
 
 `.xlsx` export needs nothing — it is built in.
 
@@ -141,6 +144,12 @@ Chat, files, exports, notifications and Operations work. Two real limitations:
 Detected automatically and treated as Linux, with one difference: the machine power
 controls reach the **Windows host** through `shutdown.exe`, because the distro is
 not the machine.
+
+The machine card follows the same logic: Wi-Fi is read from Windows' `netsh`, and
+the GPU through the Windows driver's `nvidia-smi` in `/usr/lib/wsl/lib`. CPU, RAM
+and network figures are the **Linux VM's** share of the machine. The CPU
+temperature is out of reach from inside the VM; see
+[CPU temperature on Windows and WSL](#cpu-temperature-on-windows-and-wsl-optional).
 
 ---
 
@@ -265,6 +274,9 @@ summary.
 | `PLUMI_MEMORY_URL` / `PLUMI_MEMORY_KEY` | A Supermemory server for long-term memory. See below. |
 | `PLUMI_MEMORY_NOTE` | One line shown in Settings → Memory about where conversation text is processed. |
 | `PLUMI_MEMORY_RECALL_MS` | Ceiling on the per-turn memory lookup (default 2500). |
+| `PLUMI_SENSORS_URL` | Where the machine card asks LibreHardwareMonitor for the CPU temperature. Default on Windows/WSL: `http://127.0.0.1:8085/data.json`; `off` disables it. |
+| `PLUMI_NET_TARGETS` | `host:port` pairs the card's internet check times (default `1.1.1.1:443,8.8.8.8:443`); `off` disables the check and the connection grade. |
+| `PLUMI_MACHINE_NAME` | The name on the machine card. Default: the server's time zone, e.g. "Paris, France". |
 
 ### Long-term memory (optional)
 
@@ -307,6 +319,28 @@ Then set `PLUMI_MEMORY_URL` (e.g. `http://127.0.0.1:6767`) and `PLUMI_MEMORY_KEY
 key it prints on first boot), and restart PlumiChat. The boot log says whether the
 server answered. Each account then has a switch under Settings → Memory: on by
 default for the owner, off for everyone else.
+
+### CPU temperature on Windows and WSL (optional)
+
+Windows only shows the CPU temperature to administrators, and a WSL VM cannot see
+the sensor at all. The machine card therefore asks
+[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)
+(free, open source), which runs elevated and serves its readings locally. It needs
+someone at the PC once, because it asks for admin rights:
+
+1. Download the latest release and unzip it somewhere permanent, e.g.
+   `C:\Tools\LibreHardwareMonitor`.
+2. Right-click `LibreHardwareMonitor.exe` → **Run as administrator**, and accept the
+   driver it asks to install.
+3. In **Options**, tick **Start Minimized**, **Minimize To Tray** and **Run On
+   Windows Startup**.
+4. **Options → Remote Web Server → Run** (port 8085). If Windows asks about the
+   firewall, allow **private** networks only.
+
+Within a minute the card shows the CPU temperature and power on its own; nothing
+needs a restart. Under WSL this needs **mirrored networking** (the default on
+current Windows 11 builds), so that `127.0.0.1` inside the VM reaches Windows. In
+NAT mode, set `PLUMI_SENSORS_URL` to the Windows host's address instead.
 
 ### Two-copy deploy (advanced, off by default)
 

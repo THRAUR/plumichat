@@ -20,11 +20,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  IS_WINDOWS, IS_WSL, platformLabel, which, findTmux, findPandoc, findChrome,
+  IS_WINDOWS, IS_WSL, IS_MAC, platformLabel, which, findTmux, findPandoc, findChrome,
   sandboxKind, listeningPortsCommand, powerCommand, hasGit, hasPm2, hasTailscale,
+  findNvidiaSmi, wifiSource, procRoot,
 } from './platform.js';
 import { ssoConfigured } from './apps.js';
 import { memoryConfigured, memoryBackend } from './memory.js';
+import { cpuTempSource, cpuTempReason } from './machine.js';
 
 const yes = (detail) => ({ available: true, reason: '', detail: detail || '' });
 const no = (reason) => ({ available: false, reason, detail: '' });
@@ -48,6 +50,8 @@ export async function capabilities() {
   const ports = listeningPortsCommand();
   const git = hasGit();
   const claudeCli = which('claude');
+  const wifi = wifiSource();
+  const tempSource = await cpuTempSource();
 
   return {
     platform: { label: platformLabel(), wsl: IS_WSL, node: process.version },
@@ -107,6 +111,24 @@ export async function capabilities() {
     memory: memoryConfigured()
       ? yes(`Supermemory on ${memoryBackend()}`)
       : no('No memory server configured. Set PLUMI_MEMORY_URL (and PLUMI_MEMORY_KEY) to a Supermemory server to remember across conversations — see docs/INSTALL.md.'),
+
+    // --- the machine card (top of the side menu) ------------------------------
+    // The card itself needs nothing: CPU, RAM and disks read everywhere. These are
+    // the parts of it that can be missing, and the card leaves each one out.
+    machineGpu: findNvidiaSmi()
+      ? yes('nvidia-smi')
+      : no('No nvidia-smi on this machine, so the card shows no GPU. It reads NVIDIA cards, through the tool their driver installs.'),
+    machineCpuTemp: tempSource
+      ? yes(tempSource)
+      : no('No CPU temperature. ' + cpuTempReason() + (IS_WSL || IS_WINDOWS ? ' See docs/INSTALL.md.' : '')),
+    machineWifi: wifi
+      ? yes(wifi.kind === 'netsh' ? 'netsh wlan' : 'kernel wireless stats')
+      : no(IS_MAC
+        ? 'macOS only shows Wi-Fi signal to privileged tools, so the link grade leaves the Wi-Fi part out.'
+        : `No way to read Wi-Fi signal on ${platformLabel()}, so the link grade leaves the Wi-Fi part out.`),
+    machineNetSpeed: procRoot()
+      ? yes('kernel counters')
+      : no(`Network speed comes from the kernel counters in /proc, which ${platformLabel()} does not have.`),
 
     // --- machine controls ----------------------------------------------------
     powerControls: powerCommand('shutdown')

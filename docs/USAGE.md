@@ -212,6 +212,39 @@ service may reject pushes signed with a bogus one.
 
 ---
 
+## Machine card *(owner only)*
+
+*Top of the side menu.* How the machine PlumiChat runs on is doing, at a glance:
+
+- **CPU, GPU and RAM** with bars, the CPU and GPU temperatures, and the server's
+  place and clock ("Paris, France · 16:12"). Bars turn amber at 80% and red at 95%.
+- **A connection grade** — Excellent, Good, Average, Mediocre, Bad or Offline — for
+  the **server's own** internet link, not your phone's. It combines the delay to
+  public DNS servers, how much that delay jumps around (jitter), lost handshakes,
+  and the Wi-Fi signal when the server is on Wi-Fi. The worst of them sets the
+  grade:
+
+  | Grade | Delay | Jitter | Loss | Wi-Fi signal |
+  |---|---|---|---|---|
+  | Excellent | < 20 ms | < 5 ms | 0% | ≥ 80% |
+  | Good | < 50 ms | < 15 ms | ≤ 2% | ≥ 65% |
+  | Average | < 100 ms | < 30 ms | ≤ 5% | ≥ 50% |
+  | Mediocre | < 200 ms | < 60 ms | ≤ 15% | ≥ 35% |
+  | Bad | slower | higher | more | lower |
+
+- **Tap the card for details:** two-minute graphs, the CPU and GPU models, graphics
+  memory, power draw, network speed, and free space on the disks that matter (where
+  PlumiChat keeps its data, where the projects live, and under WSL the Windows `C:`
+  drive the Linux disk lives on).
+
+It only updates while it is on screen, and never inside split view. The shortcut
+picker (the sliders button in the side menu's header) can hide it. Anything this
+machine cannot measure is left out, with the reason in the startup banner. The CPU
+temperature on Windows and WSL needs LibreHardwareMonitor; see
+[INSTALL.md](INSTALL.md#cpu-temperature-on-windows-and-wsl-optional).
+
+---
+
 ## Terminal *(owner only)*
 
 *This machine → Terminal.* A real interactive shell over a WebSocket.

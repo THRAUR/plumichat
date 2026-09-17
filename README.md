@@ -82,6 +82,8 @@ go via the share sheet.
 - Optional single sign-on for sister apps on the same host
 
 **The machine**
+- **Machine card** — CPU, GPU and RAM with temperatures, network speed, disks and a
+  grade for the server's own internet link, at the top of the side menu
 - **Terminal** — a real shell over WebSocket, inside tmux so it survives a restart,
   with a copy sheet that gets text out on a phone (long sign-in links come out whole)
 - **Operations** — an autonomous task board: worktree run → reviewable patch → human
@@ -141,6 +143,8 @@ Full instructions, including how to reach it from a phone: **[docs/INSTALL.md](d
 | Terminal survives a restart | ✅ tmux | ✅ tmux | ❌ no tmux |
 | Operations | ✅ | ✅ | ✅ |
 | Sites | ✅ `ss` | ✅ `lsof` | ✅ `netstat` |
+| Machine card: CPU, RAM, disks, connection grade | ✅ | ✅ | ✅ |
+| …GPU, CPU temperature, network speed, Wi-Fi | ✅ `nvidia-smi`, sensors, `/proc` | ❌ | GPU and Wi-Fi; temperature via LibreHardwareMonitor |
 | **Member accounts** | ✅ bubblewrap | ✅ seatbelt | ❌ **no sandbox** |
 
 Where a capability is missing, the feature is hidden and the reason is named — at

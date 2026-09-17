@@ -4,6 +4,7 @@ import { setupOwnerRows } from './panels/engine.js';
 import { userChip } from './library.js';
 import { applyAccountPerm, permPicker, setPermAllowed, setProfileInfo, updatePermLabel } from './panels/perm.js';
 import { applyAccountDefaults } from './models.js';
+import { showMachineCard } from './panels/machine.js';
 
 // Reflect the signed-in account in the drawer's user chip — avatar (photo or
 // initials), name and email — so a profile photo set in Settings appears here
@@ -58,6 +59,9 @@ export function loadProfile() {
       // owner's business alone (/api/sites is owner-gated server-side too).
       var sNav = document.getElementById("sitesNav");
       if (sNav) sNav.hidden = !p.isOwner;
+      // And the machine card at the top: this box's load, temperatures and link
+      // (/api/machine is owner-gated server-side too).
+      showMachineCard(p.isOwner);
       // Reveal the approval-mode selector only for owner/admin (members are pinned
       // to "Ask first" server-side, so the control would be a no-op for them).
       // NB: p.role is a display LABEL ("Owner · Workspace admin"), never compare

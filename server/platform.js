@@ -234,6 +234,87 @@ export function powerCommand(action, delaySecs = 6) {
   return null;
 }
 
+/* --------------------------- hardware readings ---------------------------- */
+
+// Where the machine card (server/machine.js) gets each figure without a privileged
+// helper. These answer "where to look", never "is it working right now": every
+// reading is best-effort, and one that fails hides its figure rather than erroring.
+
+// nvidia-smi ships with the NVIDIA driver, but not always on PATH: WSL mounts the
+// Windows driver's copy under /usr/lib/wsl/lib, and older Windows drivers put it in
+// an NVSMI folder of their own.
+export function findNvidiaSmi() {
+  return firstOf([
+    IS_WSL && '/usr/lib/wsl/lib/nvidia-smi',
+    IS_WINDOWS && 'C:\\Windows\\System32\\nvidia-smi.exe',
+    IS_WINDOWS && 'C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe',
+  ], 'nvidia-smi');
+}
+
+// Where the Wi-Fi signal comes from. On WSL the Wi-Fi belongs to Windows (the VM
+// only sees a mirrored adapter), so it is Windows' `netsh wlan`, started from C:\
+// because a Windows program handed a \\wsl.localhost working folder may refuse it.
+// Linux drivers publish /proc/net/wireless. macOS keeps the signal for privileged
+// tools, so it has no source.
+export function wifiSource() {
+  if (IS_WSL) {
+    const netsh = '/mnt/c/Windows/System32/netsh.exe';
+    return isExec(netsh) ? { kind: 'netsh', cmd: netsh, cwd: '/mnt/c' } : null;
+  }
+  if (IS_WINDOWS) {
+    const netsh = which('netsh');
+    return netsh ? { kind: 'netsh', cmd: netsh } : null;
+  }
+  if (IS_LINUX && fs.existsSync('/proc/net/wireless')) return { kind: 'proc', file: '/proc/net/wireless' };
+  return null;
+}
+
+// A CPU temperature the kernel shows without privileges: a hwmon driver that IS the
+// CPU package, else a CPU thermal zone. There is none on WSL (Hyper-V hides the
+// sensor from the VM), and macOS and Windows only show it to privileged tools.
+export function cpuSensorFile() {
+  if (!IS_LINUX) return null;
+  const list = (dir) => { try { return fs.readdirSync(dir); } catch { return []; } };
+  const read = (f) => { try { return fs.readFileSync(f, 'utf8').trim(); } catch { return ''; } };
+  const hw = '/sys/class/hwmon';
+  for (const h of list(hw)) {
+    const dir = path.join(hw, h);
+    if (!/^(coretemp|k10temp|zenpower|cpu_thermal|soc_thermal)$/.test(read(path.join(dir, 'name')))) continue;
+    const inputs = list(dir).filter((f) => /^temp\d+_input$/.test(f))
+      .sort((a, b) => parseInt(a.slice(4), 10) - parseInt(b.slice(4), 10));
+    if (!inputs.length) continue;
+    const pkg = inputs.find((f) => /package|tctl|tdie/i.test(read(path.join(dir, f.replace('_input', '_label')))));
+    return path.join(dir, pkg || inputs[0]);
+  }
+  const tz = '/sys/class/thermal';
+  for (const z of list(tz).filter((d) => d.startsWith('thermal_zone'))) {
+    if (/^(x86_pkg_temp|cpu[-_]thermal|soc[-_]thermal)$/.test(read(path.join(tz, z, 'type')))) return path.join(tz, z, 'temp');
+  }
+  return null;
+}
+
+// Where Windows' CPU temperature can be asked for without admin rights: from
+// LibreHardwareMonitor, which runs elevated and serves its readings locally. WSL
+// reaches Windows' localhost only with mirrored networking; a NAT-mode install sets
+// PLUMI_SENSORS_URL to the host's address instead.
+export function sensorsUrlDefault() {
+  return IS_WINDOWS || IS_WSL ? 'http://127.0.0.1:8085/data.json' : '';
+}
+
+// The kernel counters behind swap, the default route and network speed. Linux only.
+export function procRoot() {
+  return IS_LINUX && fs.existsSync('/proc/net/dev') ? '/proc' : null;
+}
+
+// macOS counts only never-touched pages as free, so os.freemem() reads a healthy Mac
+// as nearly full. vm_stat has the page counts that make "used" honest.
+export function memoryStatsCommand() {
+  return IS_MAC && isExec('/usr/bin/vm_stat') ? { cmd: '/usr/bin/vm_stat', args: [] } : null;
+}
+
+// Windows has no load average: os.loadavg() answers [0, 0, 0] there.
+export function hasLoadAverage() { return !IS_WINDOWS; }
+
 /* ------------------------------ misc helpers ------------------------------ */
 
 // The server can inherit a TMPDIR from whatever launched it — a parent Claude Code

@@ -206,6 +206,14 @@
           </button>
         </div>
       </div>
+      <!-- How the box this server runs on is doing. Owner-only (revealed from
+           loadProfile; /api/machine enforces the same), filled in and polled by
+           js/panels/machine.js — only while it is on screen. Sits outside the
+           scroller so it stays put while the chat list moves. -->
+      <section class="machine-card" id="machineCard" aria-label="Machine status" hidden>
+        <button class="mc-summary" id="machineSummary" type="button" aria-expanded="false" aria-controls="machineDetails"></button>
+        <div class="mc-details" id="machineDetails" hidden></div>
+      </section>
       <div class="drawer-search">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         <input type="text" id="drawerSearchInput" placeholder="Search conversations" autocomplete="off" />
@@ -728,6 +736,7 @@
   <link rel="modulepreload" href="/js/panels/commands.js">
   <link rel="modulepreload" href="/js/panels/deliverables.js">
   <link rel="modulepreload" href="/js/panels/engine.js">
+  <link rel="modulepreload" href="/js/panels/machine.js">
   <link rel="modulepreload" href="/js/panels/notepad.js">
   <link rel="modulepreload" href="/js/panels/notify.js">
   <link rel="modulepreload" href="/js/panels/perm.js">

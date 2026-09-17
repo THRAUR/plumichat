@@ -527,7 +527,7 @@
   /* Turned off in the picker. Kept separate from the [hidden] attribute, which is
      what permission checks use — a member must not be able to reveal Terminal by
      ticking a box. */
-  .drawer-nav.nav-off, .sites-list.nav-off { display: none; }
+  .drawer-nav.nav-off, .sites-list.nav-off, .machine-card.nav-off { display: none; }
   /* While the picker is open it stands in for the shortcut rows rather than sitting
      above them — showing both listed the same names twice, stacked. */
   .drawer-scroll.picking .drawer-nav,
@@ -4665,3 +4665,127 @@ body {
 /* Typed ahead in a brand-new chat, before the server has given the conversation an
    id to file it under. It is on its way there; see stageOrPost in js/tray.js. */
 .queued-chip.pending { opacity: 0.85; }
+
+/* ---------- Machine card (top of the sidebar) ----------
+   How the box this server runs on is doing: js/panels/machine.js. It sits under
+   the header, outside the scroller, so it stays put while the chat list moves; the
+   details open inside the card and scroll there, so on a phone they can never push
+   the list off the screen. Colours come only from tokens — green, amber and brick
+   are states here, never decoration. */
+.machine-card {
+  flex: none;
+  margin: 10px 12px 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.machine-card[hidden], .mc-details[hidden], .mc-tile[hidden], .mc-bar[hidden] { display: none; }
+.mc-summary {
+  display: block;
+  width: 100%;
+  padding: 7px 9px 8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mc-summary:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.mc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.mc-place, .mc-word, .mc-lbl {
+  font-family: var(--font-label);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mc-place { display: flex; min-width: 0; white-space: nowrap; color: var(--muted); }
+.mc-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mc-clock { flex: none; white-space: pre; }
+.mc-grade { display: inline-flex; flex: none; align-items: center; gap: 5px; color: var(--muted); }
+.mc-dot { width: 7px; height: 7px; background: var(--faint); }
+/* The word always carries the grade; the colour only repeats it. */
+.mc-grade[data-grade="excellent"], .mc-grade[data-grade="good"] { color: var(--green); }
+.mc-grade[data-grade="excellent"] .mc-dot, .mc-grade[data-grade="good"] .mc-dot { background: var(--green); }
+.mc-grade[data-grade="average"] { color: var(--text); }
+.mc-grade[data-grade="average"] .mc-dot { background: var(--muted); }
+.mc-grade[data-grade="mediocre"] { color: var(--warn); }
+.mc-grade[data-grade="mediocre"] .mc-dot { background: var(--warn); }
+.mc-grade[data-grade="bad"], .mc-grade[data-grade="offline"] { color: var(--error); }
+.mc-grade[data-grade="bad"] .mc-dot, .mc-grade[data-grade="offline"] .mc-dot { background: var(--error); }
+
+.mc-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.mc-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mc-tl { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
+.mc-lbl { color: var(--faint); }
+.mc-num, .mc-sub, .mc-details { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.mc-num { font-size: 12px; line-height: 1; color: var(--text); white-space: nowrap; }
+.mc-sub { overflow: hidden; font-size: 10.5px; line-height: 1.1; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+.mc-sub[data-tone="warn"] { color: var(--warn); }
+.mc-sub[data-tone="hot"] { color: var(--error); }
+
+/* A pixel meter: the fill is cut into 3px blocks by gaps painted in the card's
+   own colour, so it reads as segments on every palette without a new token. */
+.mc-bar { position: relative; display: block; height: 6px; overflow: hidden; background: var(--surface-3); }
+.mc-bar i {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: var(--pct, 0%);
+  background: var(--accent);
+  transition: width var(--dur-base) var(--ease-out);
+}
+.mc-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 3px, var(--surface-2) 3px 4px);
+}
+.mc-bar[data-tone="warn"] i { background: var(--warn); }
+.mc-bar[data-tone="hot"] i { background: var(--error); }
+
+/* Figures the server has not confirmed lately — the grade included — are shown as
+   old, not as live. */
+.machine-card.stale .mc-tiles, .machine-card.stale .mc-details, .machine-card.stale .mc-grade { opacity: 0.5; }
+.machine-card.stale .mc-place { color: var(--warn); }
+
+.mc-details {
+  max-height: 45vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 9px 8px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.mc-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.mc-row > .mc-lbl { padding-top: 3px; }
+.mc-lines { min-width: 0; }
+.mc-line { overflow-wrap: anywhere; }
+.mc-line.dim { color: var(--muted); }
+.mc-hint { margin-top: 3px; font-family: var(--sans); font-size: 11px; line-height: 1.35; color: var(--muted); }
+.mc-spark { display: block; width: 100%; height: 18px; margin-top: 4px; overflow: visible; border-bottom: 1px solid var(--line); }
+.mc-spark polyline {
+  fill: none;
+  stroke: var(--accent-text);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+/* Name left, figure right; when both do not fit, the figure drops to its own line
+   whole rather than breaking "500 GB" in two. */
+.mc-disk { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; column-gap: 8px; }
+.mc-disk + .mc-disk { margin-top: 4px; }
+.mc-disk .mc-line { white-space: nowrap; }
+.mc-disk .mc-line.dim { margin-left: auto; }
+.mc-disk .mc-bar { flex: 0 0 100%; height: 4px; margin-top: 3px; }
+.mc-foot { padding-top: 6px; font-size: 10px; color: var(--faint); }
+@media (prefers-reduced-motion: reduce) { .mc-bar i { transition: none; } }

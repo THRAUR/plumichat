@@ -138,6 +138,59 @@ aspiration: the parts that cannot work say so, by name, up front.
 
 ---
 
+## The machine card
+
+The owner's live readout at the top of the side menu (`server/machine.js`,
+`public/js/panels/machine.js`). Two decisions shape it.
+
+**It costs nothing until someone looks, and very little after.** Nothing is sampled
+before the first `GET /api/machine`. From then on:
+
+- CPU, RAM and network counters are read in-process every 3 s, so the card opens
+  on two minutes of graph instead of an empty one.
+- Child processes (`nvidia-smi`, `netsh`) and the temperature source run only while
+  a request arrived in the last 30 s.
+- The internet check runs every 10 s while watched and every 30 s otherwise.
+- Everything stops after an hour with no requests.
+
+The route answers from that cache, so it is safe to poll. The page polls only while
+the card is actually on screen: the drawer is open, or the desktop sidebar is
+showing, and the page is visible. Split-view panes never show the card, since each
+pane is a whole page and would poll on its own. Measured on a WSL2 box: 0.03% of
+one core idle and 0.10% watched.
+
+**The connection grade is about the server's own link.** The phone's link to the
+server is already felt on the phone, and across continents it would read "slow" on
+the best day there is. The grade uses fixed limits, and the worst part decides:
+
+- delay and jitter of TCP handshakes to public DNS servers (IPs, so DNS is not
+  timed);
+- lost handshakes;
+- the Wi-Fi signal, when the default route is on Wi-Fi.
+
+Each target is judged separately, and the best one counts. Otherwise the gap
+between two providers would read as jitter, and one blocked provider would read as
+a bad connection. Jitter is ignored until a target has 4 answers, and loss until it
+has 10.
+
+The platform-specific sources live in `platform.js`, and every missing part has a
+`machine*` row in `capabilities.js`:
+
+- **GPU:** `nvidia-smi`, which WSL mounts from the Windows driver.
+- **Wi-Fi:** Windows' `netsh` (also under WSL, where the Wi-Fi belongs to Windows),
+  or `/proc/net/wireless`. `netsh` labels are translated, so it is parsed by the
+  shape of its values: a MAC address marks an adapter, and an `NN%` value marks a
+  connected one.
+- **Ethernet or Wi-Fi:** under WSL's mirrored networking, the Linux interface
+  carries the Windows adapter's own MAC, so the default route can be matched to it.
+- **CPU temperature:** Linux kernel sensors, or LibreHardwareMonitor on Windows.
+  Hyper-V hides the sensor from a WSL VM, and Windows only gives it to
+  administrators.
+- **macOS memory:** comes from `vm_stat`, because `os.freemem()` counts only
+  never-used pages there and reads a healthy Mac as full.
+
+---
+
 ## Web Push, implemented by hand
 
 `server/push.js` implements **RFC 8291** (message encryption) and **RFC 8292**

@@ -27,6 +27,7 @@ import { mcpStatus, reloadEngineParts, pluginCatalogue, installPlugin, uninstall
 import { exportAnswer } from './export.js';
 import { listModels } from './models.js';
 import { listSites, SITE_GROUPS } from './sites.js';
+import { machineSnapshot } from './machine.js';
 import { appById, appLoginContext, appForOrigin } from './apps.js';
 import { changePassword, setEnvVar } from './credentials.js';
 import { getWorkspace, setWorkspace } from './settings.js';
@@ -692,6 +693,15 @@ app.get('/api/terminal/targets', requireOwner, (_req, res) => {
 app.get('/api/sites', requireOwner, async (req, res) => {
   try { res.json({ sites: await listSites({ refresh: req.query.refresh === '1' }), groups: SITE_GROUPS }); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Owner-only: how this box is doing — CPU / GPU / RAM, temperatures, network, disks
+// and a grade for the box's own internet link (see server/machine.js). It answers
+// from what the sampler already holds, so the side menu can ask every few seconds,
+// and asking is what keeps the costlier probes (nvidia-smi, netsh) running.
+app.get('/api/machine', requireOwner, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(machineSnapshot());
 });
 
 // --- Notepad: a per-user synced scratchpad (text clips + small file drops) that

@@ -12,7 +12,11 @@ export function initShortcutPicker() {
     var KEY = "plumi.shortcuts.hidden";
     // Icon and label are read off the nav row itself, so a shortcut only has to be
     // described once — in the markup — and this list never drifts from the sidebar.
+    // The machine card is not a row: it has no .nav-label to read and nothing to
+    // open, so it names itself here and its name toggles it, like the eye does.
     var FEATURES = [
+      { id: "machine", nav: "machineCard", label: "Machine status", toggleOnly: true,
+        icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1.5" x2="9" y2="4"></line><line x1="15" y1="1.5" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="22.5"></line><line x1="15" y1="20" x2="15" y2="22.5"></line><line x1="20" y1="9" x2="22.5" y2="9"></line><line x1="20" y1="15" x2="22.5" y2="15"></line><line x1="1.5" y1="9" x2="4" y2="9"></line><line x1="1.5" y1="15" x2="4" y2="15"></line></svg>' },
       { id: "notepad", nav: "notepadNav" },
       { id: "grid", nav: "gridNav" },
       { id: "ops", nav: "opsNav" },
@@ -67,7 +71,7 @@ export function initShortcutPicker() {
         if (!nav || nav.hidden) return;
         offered++;
         var off = hidden.indexOf(f.id) >= 0;
-        var name = (nav.querySelector(".nav-label") || {}).textContent || f.id;
+        var name = (nav.querySelector(".nav-label") || {}).textContent || f.label || f.id;
 
         var row = document.createElement("div");
         row.className = "pick-row" + (off ? " off" : "");
@@ -75,13 +79,22 @@ export function initShortcutPicker() {
         var open = document.createElement("button");
         open.type = "button";
         open.className = "pick-open";
-        open.title = "Open " + name;
+        open.title = f.toggleOnly ? (off ? "Show " : "Hide ") + name : "Open " + name;
         var ic = nav.querySelector(".nav-ic");
         if (ic) open.appendChild(ic.cloneNode(true));
+        else if (f.icon) {
+          var own = document.createElement("span");
+          own.className = "nav-ic";
+          own.innerHTML = f.icon;
+          open.appendChild(own);
+        }
         var text = document.createElement("span");
         text.textContent = name;
         open.appendChild(text);
-        open.addEventListener("click", function () { setOpen(false); nav.click(); });
+        open.addEventListener("click", function () {
+          if (f.toggleOnly) { toggle(f.id); build(); return; }
+          setOpen(false); nav.click();
+        });
 
         var eye = document.createElement("button");
         eye.type = "button";
