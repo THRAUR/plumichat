@@ -214,6 +214,14 @@ const PERM_MODES = ['default', 'acceptEdits', 'bypassPermissions'];
 // '#' is allowed here where settings.js's defaultModel — which really is an
 // engine id — does not allow it. Still never a display label ('Sonnet 4.6').
 const MODEL_ID_RE = /^[a-z0-9._#[\]-]+$/;
+// Where a long chat compacts, in tokens; 0 means "only when the model's window is
+// full". Claude Code takes this as `autoCompactWindow` (100k-1M) and only ever
+// LOWERS the model's own window, so it matters for 1M-context chats. Measured on
+// the maintainer's box, the costliest tenth of chats ran to 630k-975k tokens and
+// re-read all of it on every step, which made re-reading two-thirds of the Opus
+// bill. A short list, so Settings stays one control.
+const COMPACT_AT = [0, 200000, 300000, 500000];
+const DEFAULT_COMPACT_AT = 300000;
 
 // A member's turn is forced to 'default' in /api/chat, because acceptEdits and
 // bypass make the SDK skip canUseTool — which IS the confinement. Storing a
@@ -237,7 +245,14 @@ export function chatDefaultsOf(user) {
     fastMode: !!d.fastMode,
     context1m: !!d.context1m,
     permissionMode: readPerm(d.permissionMode, user),
+    compactAt: COMPACT_AT.includes(d.compactAt) ? d.compactAt : DEFAULT_COMPACT_AT,
   };
+}
+// For a turn: the account's compaction point, or the default when there is no
+// account (the Basic-auth lifeline before anyone registered).
+export function compactAtFor(userId) {
+  const rec = userId ? findById(userId) : null;
+  return rec ? chatDefaultsOf(rec).compactAt : DEFAULT_COMPACT_AT;
 }
 export function updateUserDefaults(userId, patch = {}) {
   const rec = findById(userId);
@@ -257,6 +272,11 @@ export function updateUserDefaults(userId, patch = {}) {
   }
   if (patch.fastMode != null) next.fastMode = !!patch.fastMode;
   if (patch.context1m != null) next.context1m = !!patch.context1m;
+  if (patch.compactAt != null) {
+    const c = Number(patch.compactAt);
+    if (!COMPACT_AT.includes(c)) throw new Error('unknown compaction point');
+    next.compactAt = c;
+  }
   if (patch.permissionMode != null) {
     const pm = String(patch.permissionMode);
     if (!PERM_MODES.includes(pm)) throw new Error('unknown approval mode');

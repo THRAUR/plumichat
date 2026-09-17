@@ -397,7 +397,7 @@ async function has1mVariant(id) {
 //   { type: 'thinkingTokens', estimated }                           — throttled thinking-token estimate
 export async function runPrompt({
   prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
-  onEvent, askUser, allowAlways, abortController, canUseTool, sandbox, memory,
+  onEvent, askUser, allowAlways, abortController, canUseTool, sandbox, memory, compactAt,
 }) {
   // Capture the CLI subprocess's stderr. The SDK collapses a non-zero exit into a
   // generic "exited with code N" and discards the child's stderr — which is where
@@ -470,6 +470,15 @@ export async function runPrompt({
   // mean off even if a settings file on the box switched fast mode on globally.
   // Whether it actually engaged is checked on the init message below.
   options.settings = { fastMode: !!fastMode };
+  // Where a long chat compacts (users.js `compactAt`). Same flag-settings layer as
+  // fast mode, and for the same reason sent both ways: "off" goes out as the
+  // 1M maximum, which leaves every model its full window, so a settings file on the
+  // box cannot quietly turn compaction back on for someone who switched it off. The
+  // CLI takes the smaller of this and the model's window, so it only bites on 1M
+  // chats. Undefined (an Operations run) leaves the CLI's own behaviour alone.
+  if (compactAt !== undefined) {
+    options.settings.autoCompactWindow = compactAt > 0 ? compactAt : 1000000;
+  }
   // Member turns carry bubblewrap sandbox settings so their Bash is hard-confined
   // to their own home (see makeMemberSandbox). Owner/admin turns pass nothing.
   if (sandbox) options.sandbox = sandbox;

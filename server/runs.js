@@ -15,6 +15,7 @@ import { touchContext } from './context.js';
 import { recordTurn, spendGate } from './spend.js';
 import { sendToUser } from './push.js';
 import { turnMemory, captureTurn } from './memory.js';
+import { compactAtFor } from './users.js';
 
 const runs = new Map();          // key (sessionId | tempId) -> Run
 const asks = new Map();          // askId -> { run, resolve }
@@ -390,6 +391,9 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
   // directly and so never gets it: an autonomous run is not a conversation to
   // remember.
   const memory = turnMemory(userId);
+  // The account's compaction point, read here for the same reason as memory: a
+  // queued or resumed turn must compact where the person's own turn would.
+  const compactAt = compactAtFor(userId);
 
   // Detached IIFE: the turn is NOT tied to any one request/response.
   (async () => {
@@ -397,7 +401,7 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     try {
       outcome = await runPrompt({
         prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
-        onEvent, askUser, allowAlways, abortController: run.abort, canUseTool, sandbox, memory,
+        onEvent, askUser, allowAlways, abortController: run.abort, canUseTool, sandbox, memory, compactAt,
       });
     } catch (err) {
       if (!run.errorMsg) run.errorMsg = err?.message || String(err);

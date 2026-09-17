@@ -701,6 +701,12 @@
               <div class="row"><div class="rmain"><div class="rlabel">Model</div><div class="rdesc">The model a new turn uses.</div></div><div class="rctl" style="width:230px"><select id="defModel"><option value="">Loading…</option></select></div></div>
               <div class="row" id="defEffortRow"><div class="rmain"><div class="rlabel">Effort</div><div class="rdesc">How hard it thinks before answering. Only shown for models that support it.</div></div><div class="rctl"><div class="seg" id="defEffort"></div></div></div>
               <div class="row" id="defFastRow"><div class="rmain"><div class="rlabel">Fast mode</div><div class="rdesc">Faster output on Opus. Same model, not a smaller one.</div></div><div class="rctl"><button class="switch" id="defFast" type="button" role="switch" aria-checked="false"></button></div></div>
+              <div class="row"><div class="rmain"><div class="rlabel">Compact long chats</div><div class="rdesc">When a chat grows this big, Claude summarizes its older part, so every new message costs less. Only matters with the 1M context window.</div></div><div class="rctl" style="width:230px"><select id="defCompact">
+                <option value="200000">At 200k tokens</option>
+                <option value="300000">At 300k tokens (recommended)</option>
+                <option value="500000">At 500k tokens</option>
+                <option value="0">Only when full</option>
+              </select></div></div>
               <div class="row admin-only"><div class="rmain"><div class="rlabel">Approval mode</div><div class="rdesc">When PlumiChat may act without asking.</div></div><div class="rctl" style="width:230px"><select id="defPerm">
                 <option value="default">Ask first</option>
                 <option value="acceptEdits">Auto-accept edits</option>
@@ -1014,6 +1020,7 @@
     var fRow = document.getElementById("defFastRow");
     var fSw  = document.getElementById("defFast");
     var pSel = document.getElementById("defPerm");
+    var cSel = document.getElementById("defCompact");
     if (!mSel) return;
     var EFFORT_SHORT = { low: "Low", medium: "Med", high: "High", xhigh: "XHi", max: "Max" };
     var live = [];            // the account's real model list, from /api/models
@@ -1078,6 +1085,9 @@
       save({ fastMode: !cur.fastMode }); paintEffort();
     });
     if (pSel) pSel.addEventListener("change", function () { save({ permissionMode: pSel.value }); });
+    // Where a long chat compacts (users.js compactAt). A number on the wire; the
+    // server accepts only the values this list offers.
+    if (cSel) cSel.addEventListener("change", function () { save({ compactAt: Number(cSel.value) }); });
 
     // The model list mirrors the composer's: /api/models, with the "· 1M" twin
     // for every model the server marks ctx1m, so the two pickers offer the same
@@ -1098,6 +1108,7 @@
       if (!d) return;
       cur = Object.assign(cur, d);
       if (pSel) pSel.value = cur.permissionMode || "default";
+      if (cSel) cSel.value = String(cur.compactAt == null ? 300000 : cur.compactAt);
       paintModels(); paintEffort();
     };
   })();

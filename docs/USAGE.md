@@ -319,11 +319,21 @@ It does not commit, does not push, and does not restart anything.
 |---|---|
 | **Profile** | Name, email, avatar (with a real cropper). |
 | **Appearance** | Nine palettes, seventeen accents, light/dark. The chosen palette is remembered **per mode**, so the sun/moon toggle flips between the two schemes you actually picked. |
-| **Chat** | Default model, effort, fast mode, approval mode — stored on your account. |
+| **Chat** | Default model, effort, fast mode, approval mode, and **Compact long chats**, all stored on your account. |
 | **Security** | Change PIN, manage passkeys, active sessions. |
 | **Engine** | Versions and updates *(owner)*. |
 | **Models** | Which models are offered; whether members may switch *(admin)*. |
 | **Members** | Invite, remove, per-member usage, grant power-off *(admin)*. |
+
+### Compact long chats
+
+A long chat resends its whole history with every step, so a chat that has grown to
+hundreds of thousands of tokens makes every new message expensive. *Settings → Chat
+→ Compact long chats* sets the size at which Claude summarizes the older part of
+the chat: 200k, 300k (the default), 500k, or only when the model's window is full.
+It only matters with the 1M context window; smaller windows compact on their own
+anyway. The trade-off is that fine details from far back in a chat are summarized
+rather than kept word for word.
 
 ### Members and invites
 
