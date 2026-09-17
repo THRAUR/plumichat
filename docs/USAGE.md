@@ -165,6 +165,10 @@ conversations and projects.
   handed to Claude as background, and your conversation still shows only what you
   typed. Claude can also search memory itself (`recall`), and save something when
   you say "remember that…" (`remember`).
+- **Your profile rides along with every message.** Lasting facts (your name, where
+  you live, your languages, your work, standing preferences) form it. Build it by
+  telling Claude about yourself, and say "add that to my profile" for anything that
+  should always be known.
 - **It is per account.** Nobody else's turns can read your memories, and the
   switch is yours: on by default for the owner, off for everyone else until they
   turn it on.
