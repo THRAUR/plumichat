@@ -56,8 +56,9 @@ import {
   userCount, publicUser, profileView, updateUserProfile, changeUserPin,
   updateUserAvatar, removeUserAvatar, canPowerOff, setPowerOff, userSessionVersion,
   membersView, removeUser, createInvite, pendingInvites, revokeInvite, inviteIsValid,
-  updateUserDefaults,
+  updateUserDefaults, setUserMemory,
 } from './users.js';
+import { memoryStatus, listMemories, forgetMemory, forgetAll, memoryBootLine, canEnableMemory } from './memory.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3002);
@@ -1142,7 +1143,7 @@ app.post('/api/chat', requireAuth, (req, res) => {
   const effMode = isAdminUser(req.user) ? permissionMode : 'default';
   let run;
   try {
-    run = startRun({ project, cwd, prompt: finalPrompt, sessionId, model: effModel, effort, fastMode, context1m, permissionMode: effMode, confineHome, userId: req.user.id });
+    run = startRun({ project, cwd, prompt: finalPrompt, sessionId, model: effModel, effort, fastMode, context1m, permissionMode: effMode, confineHome, userId: req.user.id, memoryText: String(prompt || '') });
   } catch (err) {
     // startRun throws three things, and they mean different things to a client:
     // the duplicate-conversation guard ("a turn is already running here") stays a
@@ -1269,6 +1270,27 @@ app.put('/api/settings/defaults', requireAuth, (req, res) => ok(res, () => {
   if (!req.user.id) throw new Error('register your account first');
   return updateUserDefaults(req.user.id, req.body || {});
 }));
+// Long-term memory (server/memory.js), per ACCOUNT. Every route is requireAuth and
+// acts on the caller's own container only — memory.js derives it from req.user,
+// and no route takes a container, a user id or a URL from the request. The on/off
+// switch is not admin-gated for the same reason chat defaults are not: it is the
+// account's own preference, and it can only narrow what happens to its own turns.
+const okAsync = (res, fn) => Promise.resolve().then(fn)
+  .then((v) => res.json(v))
+  .catch((err) => res.status(err && err.status >= 500 ? 502 : 400).json({ error: (err && err.message) || 'memory request failed' }));
+app.get('/api/memory', requireAuth, (req, res) => okAsync(res, () => memoryStatus(req.user)));
+app.put('/api/memory', requireAuth, (req, res) => okAsync(res, () => {
+  if (!req.user.id) throw new Error('register your account first');
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false');
+  if (enabled) canEnableMemory(req.user); // throws the reason a confined account cannot
+  setUserMemory(req.user.id, enabled);
+  return memoryStatus(req.user);
+}));
+app.get('/api/memory/items', requireAuth, (req, res) => okAsync(res, () => listMemories(req.user)));
+app.delete('/api/memory/items/:id', requireAuth, (req, res) => okAsync(res, () => forgetMemory(req.user, req.params.id)));
+app.delete('/api/memory', requireAuth, (req, res) => okAsync(res, () => forgetAll(req.user)));
+
 app.get('/api/settings/workspace', requireAuth, (_req, res) => ok(res, () => getWorkspace()));
 // This month's metered usage, against the workspace budget. Per-user figures are
 // admin-shaped data and ride on /api/members instead; this is just the total.
@@ -2045,6 +2067,7 @@ const server = app.listen(PORT, HOST, () => {
   // Re-arms anything waiting on a usage window, and sweeps once for a window that
   // opened while the server was down — the case the feature exists for.
   try { initResumes(); } catch (err) { console.error('resume init failed:', err); }
+  memoryBootLine().then((line) => { if (line) console.log(line); }).catch(() => {});
 });
 
 // Owner-only interactive terminal (WebSocket at /terminal). Gated to the owner

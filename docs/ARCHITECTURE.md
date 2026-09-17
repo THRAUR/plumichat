@@ -171,6 +171,48 @@ board on screen.
 
 ---
 
+## Long-term memory
+
+`server/memory.js`, optional, backed by a Supermemory server. The shape came out of
+rejecting the obvious option first.
+
+**Why not Supermemory's own Claude Code plugin.** `claude.js` leaves
+`settingSources` unset, and the SDK then loads every settings source, so a plugin
+installed on the machine runs on *every* turn, members' included. That plugin
+uploads each turn to one shared account, answers `allow` for its own search tool in
+a PreToolUse hook (which skips `canUseTool`, i.e. skips member confinement), and lets
+the model choose which container to read. None of that is fixable from outside the
+plugin.
+
+**So memory is three in-process pieces, all bound to one account per turn:**
+
+- **Recall is a `UserPromptSubmit` hook callback.** It runs in the server process,
+  fetches the account's profile plus what is relevant to the prompt, and returns it
+  as `additionalContext`. The CLI stores that as a `hook_additional_context`
+  *attachment*, not as user text, so history never shows it. It has a hard time
+  ceiling, because it sits in front of every turn.
+- **`recall` / `remember` are an SDK MCP server** (`createSdkMcpServer`), built per
+  turn around the caller's container, with `alwaysLoad` so the model does not need a
+  ToolSearch round trip to find them. They need zod, which the SDK already pulls in
+  as a peer; without it the tools are skipped and nothing else changes.
+- **Capture happens in `runs.js` after a turn that ended `done`.** It sends the
+  prompt plus the text after the last tool call (earlier text is narration), into
+  **one document per conversation**: a repeated `customId` is an append, and only
+  the new part is extracted (measured).
+
+Three things worth knowing before touching it:
+
+- **The assistant's words are context, not facts.** Without an `entityContext`
+  saying so, a reply that restated a recalled memory came back as a *new* memory,
+  and memory started feeding on itself.
+- **The same fact arrives in many phrasings** ("User is…" / "The user is…"), so
+  recall de-duplicates on a normalised form before injecting anything.
+- **A self-hosted server trusts localhost.** Member isolation therefore rests on the
+  sandbox's network namespace and `denyRead`, not on the key, and it is only claimed
+  where that was verified (bubblewrap). See [SECURITY.md](SECURITY.md).
+
+---
+
 ## The client
 
 `public/app.js` is the entry; everything else lives in `public/js/`. It used to be

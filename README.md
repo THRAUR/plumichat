@@ -63,6 +63,9 @@ go via the share sheet.
   variants
 - Context ring, Compact, Rewind files, Fork
 - Defaults live on your **account**, not your browser
+- **Optional long-term memory** through a [Supermemory](https://github.com/supermemoryai/supermemory)
+  server: remembers across conversations per account, recalls without cluttering
+  the chat, and everything is listed and forgettable in Settings
 
 **Files and output**
 - File browser: navigate, search, preview, thumbnail, upload folders, zip a selection

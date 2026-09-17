@@ -152,6 +152,32 @@ arrives as a download box streaming the actual file.
 
 ---
 
+## Memory
+
+*Settings → Memory.* When the server has a memory backend (see
+[INSTALL.md](INSTALL.md#long-term-memory-optional)), PlumiChat can remember across
+conversations and projects.
+
+- **Remembering is automatic.** When a reply finishes, that exchange is saved and
+  the lasting facts in it are extracted: preferences, decisions, people, projects. A
+  stopped or failed turn is not saved.
+- **Recall is automatic too.** Before each message, the facts relevant to it are
+  handed to Claude as background, and your conversation still shows only what you
+  typed. Claude can also search memory itself (`recall`), and save something when
+  you say "remember that…" (`remember`).
+- **It is per account.** Nobody else's turns can read your memories, and the
+  switch is yours: on by default for the owner, off for everyone else until they
+  turn it on.
+- **You can see and delete everything.** The Memory page lists what is remembered,
+  with Forget on each item and Forget everything at the bottom.
+- The page also says where memories are stored and, if the operator filled it in,
+  which model reads your conversations to extract them.
+
+Claude Code's own project notes (its `memory` folder per project) keep working
+alongside this; they belong to a project, this belongs to you.
+
+---
+
 ## Notepad
 
 *Workspace → Notepad.* A per-user scratchpad of text clips and small file drops,

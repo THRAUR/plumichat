@@ -477,7 +477,7 @@ process.stdout.write('\\n${CANARY_MARK}' + JSON.stringify(out) + '\\n');
 // scrubbedEnv() in server/claude.js — a doubly-nested TMPDIR breaks the CLI).
 // Duplicated rather than imported because claude.js does not export it; if that
 // changes, delete this and import the real one.
-const SECRET_ENV = ['AUTH_USER', 'AUTH_PASS', 'SESSION_SECRET', 'OPS_SIGNALS', 'VAPID_PRIVATE_KEY'];
+const SECRET_ENV = ['AUTH_USER', 'AUTH_PASS', 'SESSION_SECRET', 'OPS_SIGNALS', 'VAPID_PRIVATE_KEY', 'PLUMI_MEMORY_KEY', 'AUTH_PIN_HASH'];
 const INHERITED_CLAUDE_ENV = [
   'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH',
   'CLAUDE_CODE_TMPDIR', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_AGENT_SDK_VERSION',

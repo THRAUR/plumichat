@@ -24,6 +24,7 @@ import {
   sandboxKind, listeningPortsCommand, powerCommand, hasGit, hasPm2, hasTailscale,
 } from './platform.js';
 import { ssoConfigured } from './apps.js';
+import { memoryConfigured, memoryBackend } from './memory.js';
 
 const yes = (detail) => ({ available: true, reason: '', detail: detail || '' });
 const no = (reason) => ({ available: false, reason, detail: '' });
@@ -101,6 +102,11 @@ export async function capabilities() {
     sso: ssoConfigured()
       ? yes('apps.config.json')
       : no('No sister apps configured. Copy apps.config.example.json to enable single sign-on.'),
+    // Configured, not probed: whether the server answers right now is a live
+    // question, asked by GET /api/memory each time Settings opens.
+    memory: memoryConfigured()
+      ? yes(`Supermemory on ${memoryBackend()}`)
+      : no('No memory server configured. Set PLUMI_MEMORY_URL (and PLUMI_MEMORY_KEY) to a Supermemory server to remember across conversations — see docs/INSTALL.md.'),
 
     // --- machine controls ----------------------------------------------------
     powerControls: powerCommand('shutdown')

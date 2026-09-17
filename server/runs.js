@@ -14,6 +14,7 @@ import { generateTitle, setAutoTitle, getAutoTitle, sdkTitle } from './titles.js
 import { touchContext } from './context.js';
 import { recordTurn, spendGate } from './spend.js';
 import { sendToUser } from './push.js';
+import { turnMemory, captureTurn } from './memory.js';
 
 const runs = new Map();          // key (sessionId | tempId) -> Run
 const asks = new Map();          // askId -> { run, resolve }
@@ -87,6 +88,19 @@ const COALESCED = new Set(['text', 'thinking']);
 function evSize(ev) {
   if (COALESCED.has(ev.type)) return (ev.text || '').length;
   try { return JSON.stringify(ev).length; } catch { return 0; }
+}
+
+// The answer a finished turn gave, for memory capture: the text after its last
+// tool call. Text before that is narration between steps ("Let me check…"). The
+// transcript is already bounded (TRANSCRIPT_CAP), so this never walks far.
+function replyText(run) {
+  const parts = [];
+  for (let i = run.transcript.length - 1; i >= 0; i--) {
+    const e = run.transcript[i];
+    if (e.type === 'tool' || e.type === 'task') break;
+    if (e.type === 'text' && e.text) parts.unshift(e.text);
+  }
+  return parts.join('');
 }
 
 // Record a renderable event into the run's replay buffer. Capped two ways — see
@@ -217,7 +231,9 @@ function emit(run, event) {
 
 // Start a detached turn and return its Run. Throws if a turn is already running
 // for the same conversation (one in-flight turn per conversation).
-export function startRun({ project, cwd, prompt, sessionId, model, effort, fastMode, context1m, permissionMode, confineHome, userId }) {
+// `memoryText` is what the person actually typed, when that differs from `prompt`
+// (index.js prefixes attachment instructions); memory keeps the former.
+export function startRun({ project, cwd, prompt, sessionId, model, effort, fastMode, context1m, permissionMode, confineHome, userId, memoryText }) {
   if (sessionId) {
     const existing = runs.get(sessionId);
     if (existing && existing.status === 'running') {
@@ -368,6 +384,12 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
   const canUseTool = confineHome
     ? makeMemberPolicy({ home: confineHome, askUser, allowAlways, sandboxed: true })
     : undefined;
+  // Long-term memory, when this account has it on (server/memory.js). Decided here
+  // from the ACCOUNT, never from the request, so a queued or resumed turn gets the
+  // same answer the person's own turn would. The Operations runner calls runPrompt
+  // directly and so never gets it: an autonomous run is not a conversation to
+  // remember.
+  const memory = turnMemory(userId);
 
   // Detached IIFE: the turn is NOT tied to any one request/response.
   (async () => {
@@ -375,7 +397,7 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     try {
       outcome = await runPrompt({
         prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
-        onEvent, askUser, allowAlways, abortController: run.abort, canUseTool, sandbox,
+        onEvent, askUser, allowAlways, abortController: run.abort, canUseTool, sandbox, memory,
       });
     } catch (err) {
       if (!run.errorMsg) run.errorMsg = err?.message || String(err);
@@ -427,6 +449,14 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
         } catch { /* never block done on a title failure */ }
       }
       run.endedAt = Date.now();
+      // Remember the exchange, but only for a turn that FINISHED: a stopped or failed
+      // one is half a thought. Fire-and-forget, so it can never delay 'done'.
+      if (memory && run.status === 'done') {
+        captureTurn({
+          tag: memory.tag, sessionId: run.sessionId, project,
+          prompt: memoryText ?? prompt, reply: replyText(run),
+        });
+      }
       // Kept whole so subscribe() replays the SAME ending a live subscriber got,
       // `stalled` flag and all, instead of rebuilding a lesser copy of it.
       run.endedEv = { type: 'ended', status: run.status, reason: run.reason, stalled: !!run.stalled };

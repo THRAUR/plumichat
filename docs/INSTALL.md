@@ -262,6 +262,51 @@ summary.
 | `PLUMI_DOC_VENV_BIN` | A venv `bin/` prepended to each turn's PATH, for the document Skills. |
 | `OPS_RUNNER` | `sdk` (default) or `native`. See [OPERATIONS.md](OPERATIONS.md). |
 | `OPS_SIGNALS` | Production error digests for scheduled runs. See `ops-signals.example.json`. |
+| `PLUMI_MEMORY_URL` / `PLUMI_MEMORY_KEY` | A Supermemory server for long-term memory. See below. |
+| `PLUMI_MEMORY_NOTE` | One line shown in Settings → Memory about where conversation text is processed. |
+| `PLUMI_MEMORY_RECALL_MS` | Ceiling on the per-turn memory lookup (default 2500). |
+
+### Long-term memory (optional)
+
+PlumiChat can remember across conversations: preferences, decisions, the people and
+projects someone mentions. It does this through a [Supermemory](https://github.com/supermemoryai/supermemory)
+server, either one you run or the hosted API. Both speak the same REST API.
+
+**Hosted:** create a key at `console.supermemory.ai`, then set
+`PLUMI_MEMORY_URL=https://api.supermemory.ai` and `PLUMI_MEMORY_KEY`. Conversation
+text is then processed by Supermemory's cloud.
+
+**Self-hosted:** `npx supermemory local` (or the `supermemory-server` binary from
+their GitHub releases) runs the whole engine on your machine. Worth knowing before
+you do:
+
+- **It needs a model for extraction.** Set one of `OPENAI_API_KEY` (any
+  OpenAI-compatible endpoint via `OPENAI_BASE_URL`, including Ollama or OpenRouter),
+  `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` or `GROQ_API_KEY` in *its* environment,
+  not PlumiChat's. The text of every remembered turn goes to that model.
+- **Pick the embedding model before the first memory is stored.** The default is
+  English-only; for other languages set `SUPERMEMORY_EMBEDDING_MODEL` (a local
+  multilingual model such as `Xenova/multilingual-e5-base` with
+  `SUPERMEMORY_EMBEDDING_DIMENSIONS=768`, or a remote one). The dimensions are locked
+  into the store.
+- **It listens on every interface, and it trusts every request whose `Host` is
+  localhost, key or not** (v0.0.8). Keep port 6767 closed to the network. On Linux,
+  `scripts/supermemory/bind-loopback.c` pins it to loopback without root. Start it
+  with a clean environment: it reads `PORT` before `SUPERMEMORY_PORT`, so a shell
+  that exports PlumiChat's `PORT` will make it fight PlumiChat for that port.
+- **Budget the RAM:** about 1.2 GB at idle, more while a local embedding model is
+  loaded. The self-hosted licence caps the store at 10,000 documents; PlumiChat uses
+  one per conversation.
+- **Member accounts** get memory from a self-hosted server only under the Linux
+  (bubblewrap) sandbox, the one where a member's shell has been verified unable to
+  reach it. Elsewhere members can use the hosted API only; owners and admins are
+  unaffected. Keep the server's data directory where a member's
+  shell cannot read it: the default `~/.supermemory` is hidden automatically.
+
+Then set `PLUMI_MEMORY_URL` (e.g. `http://127.0.0.1:6767`) and `PLUMI_MEMORY_KEY` (the
+key it prints on first boot), and restart PlumiChat. The boot log says whether the
+server answered. Each account then has a switch under Settings → Memory: on by
+default for the owner, off for everyone else.
 
 ### Two-copy deploy (advanced, off by default)
 

@@ -271,6 +271,27 @@ export function updateUserDefaults(userId, patch = {}) {
   return chatDefaultsOf(findById(userId));
 }
 
+/* ------------------------ long-term memory switch ------------------------ */
+// Whether PlumiChat remembers across this account's conversations (server/memory.js).
+// Unset means the default, and the default depends on who it is: the owner set the
+// memory server up, so it is on for them; everyone else's conversations are theirs,
+// and being remembered is something they switch on, not something they discover.
+export function memoryEnabledOf(user) {
+  const m = user && user.memory;
+  if (m && typeof m.enabled === 'boolean') return m.enabled;
+  return !!user && user.role === 'owner';
+}
+export function setUserMemory(userId, enabled) {
+  const rec = findById(userId);
+  if (!rec) throw new Error('account not found');
+  update(USERS, (list) => {
+    const u = list.find((x) => x.id === userId);
+    if (u) u.memory = { enabled: !!enabled, at: now() };
+    return list;
+  }, []);
+  return memoryEnabledOf(findById(userId));
+}
+
 /* -------------------------------- avatar -------------------------------- */
 // Avatars are stored inline as a small data URL on the user record (the client
 // downscales to ~256px JPEG first, so this stays tiny — a few tens of KB).

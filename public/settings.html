@@ -172,6 +172,10 @@
   body:not(.is-owner) .owner-only { display: none !important; }
   /* Power controls (server restart, PC restart/shutdown) — hidden unless granted. */
   body:not(.is-power) .power-only { display: none !important; }
+  /* Memory exists only where the server has a memory backend configured. Hidden
+     until /api/memory says so, which also covers a server that has not been
+     restarted into the memory routes yet (apiOptional turns that 404 into null). */
+  body:not(.has-memory) .memory-only { display: none !important; }
   /* Power-off / restart countdown overlay (mirrors the main app). */
   .power-overlay {
     position: fixed; inset: 0; z-index: 200;
@@ -291,6 +295,14 @@
   .pk-main { flex: 1; min-width: 0; }
   .pk-name { font-size: 13.5px; font-weight: 600; }
   .pk-sub { font-size: 11.5px; color: var(--faint); font-family: var(--mono); margin-top: 2px; }
+  /* Remembered facts: one per row, forget on the right. The text is a sentence the
+     person reads (and may be Traditional Chinese), so it wraps instead of truncating. */
+  .mem-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+  .mem-row:first-child { border-top: 0; }
+  .mem-main { flex: 1; min-width: 0; }
+  .mem-text { font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+  .mem-sub { font-size: 11.5px; color: var(--faint); font-family: var(--mono); margin-top: 2px; }
+  .mem-more { padding: 10px 0 0; font-size: 12px; color: var(--faint); text-align: center; }
   .empty-line { padding: 16px; text-align: center; color: var(--faint); font-size: 13px; }
 
   .hint-note { font-size: 12px; color: var(--faint); margin: 10px 2px 0; line-height: 1.5; }
@@ -697,6 +709,20 @@
               <div class="row"><div class="rmain"><div class="rdesc" id="defNote">Members always run in “Ask first” — the approval check is what keeps a member inside their own home, so the server does not accept a relaxed mode for one.</div></div></div>
             </div>
           </section>
+          <!-- MEMORY — server/memory.js -->
+          <section data-sec="memory" class="memory-only">
+            <div class="sec-head"><h2>Memory</h2><p>What PlumiChat carries from one conversation to the next. Kept separately for each account — other accounts can't see yours.</p></div>
+            <div class="panel">
+              <div class="row"><div class="rmain"><div class="rlabel">Remember across conversations</div><div class="rdesc" id="memDesc">Checking…</div></div><div class="rctl"><button class="switch" id="memSwitch" type="button" role="switch" aria-checked="false" aria-label="Remember across conversations"></button></div></div>
+            </div>
+            <div class="hint-note" id="memNote"></div>
+            <div class="block-title">What PlumiChat remembers</div>
+            <div class="panel pad">
+              <div id="memList"><div class="empty-line">Loading…</div></div>
+              <button class="btn full btn-danger" type="button" id="memForgetAll" style="margin-top:12px" hidden>Forget everything</button>
+            </div>
+          </section>
+
           <section data-sec="security">
             <div class="sec-head"><h2>Security</h2><p>Your passcode, passkeys, and session.</p></div>
             <div class="block-title">Change passcode</div>
@@ -922,6 +948,7 @@
     { id: "profile", label: "Profile", icon: '<circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path>' },
     { id: "appearance", label: "Appearance", icon: '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"></path>' },
     { id: "chat", label: "Chat", icon: '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"></path>' },
+    { id: "memory", label: "Memory", gate: "memory-only", icon: '<rect x="5" y="3" width="14" height="18" rx="2"></rect><path d="M9 7.5h6M9 11.5h6M9 15.5h3.5"></path>' },
     { id: "security", label: "Security", icon: '<rect x="4" y="11" width="16" height="10" rx="2.4"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>' },
     { id: "engine", label: "Engine", gate: "owner-only", icon: '<circle cx="12" cy="12" r="3.2"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path>' },
     { id: "models", label: "Models", gate: "admin-only", icon: '<rect x="3" y="3" width="7" height="7" rx="1.6"></rect><rect x="14" y="3" width="7" height="7" rx="1.6"></rect><rect x="3" y="14" width="7" height="7" rx="1.6"></rect><rect x="14" y="14" width="7" height="7" rx="1.6"></rect>' },
@@ -953,10 +980,12 @@
   // A gated section is reachable only once the body carries the matching class.
   // Deep-linking #models as a member (or #engine as an admin) lands on Profile
   // instead of an empty page whose every control 403s.
+  // Which body class opens which gate. A gate this map does not know stays shut.
+  var GATE_CLASS = { "owner-only": "is-owner", "admin-only": "is-admin", "memory-only": "has-memory" };
   function allowed(id) {
     var d = secDef(id);
     if (!d || !d.gate) return true;
-    return document.body.classList.contains(d.gate === "owner-only" ? "is-owner" : "is-admin");
+    return !!GATE_CLASS[d.gate] && document.body.classList.contains(GATE_CLASS[d.gate]);
   }
   function go(id) {
     if (!allowed(id)) id = "profile";
@@ -1071,6 +1100,109 @@
       if (pSel) pSel.value = cur.permissionMode || "default";
       paintModels(); paintEffort();
     };
+  })();
+
+  /* ---------- long-term memory (account-scoped) ---------- */
+  // server/memory.js. Every call acts on the signed-in account's own memories:
+  // the server derives the container from the session, and nothing here names one.
+  (function () {
+    var sw = document.getElementById("memSwitch");
+    var desc = document.getElementById("memDesc");
+    var list = document.getElementById("memList");
+    var allBtn = document.getElementById("memForgetAll");
+    var noteEl = document.getElementById("memNote");
+    if (!sw) return;
+    var state = null;
+
+    function paint(on) {
+      sw.classList.toggle("on", !!on);
+      sw.setAttribute("aria-checked", on ? "true" : "false");
+    }
+    function describe(s) {
+      if (!s.reachable) return s.reason || "The memory server is not answering.";
+      return s.enabled
+        ? "On. New conversations can use what earlier ones taught PlumiChat."
+        : "Off. Nothing new is remembered and nothing is recalled.";
+    }
+    function render(s) {
+      state = s;
+      paint(s.enabled);
+      desc.textContent = describe(s);
+      var bits = [];
+      if (s.backend) bits.push("Stored on " + s.backend + ".");
+      if (s.note) bits.push(s.note);
+      bits.push("A finished reply is remembered on its own; say \u201cremember that\u2026\u201d to keep something specific.");
+      noteEl.textContent = bits.join(" ");
+    }
+    function empty(text) {
+      list.innerHTML = '<div class="empty-line">' + esc(text) + "</div>";
+      allBtn.hidden = true;
+    }
+    function loadItems() {
+      if (!state || !state.reachable) { empty((state && state.reason) || "Memory is not available right now."); return; }
+      list.innerHTML = '<div class="empty-line">Loading…</div>';
+      sapi("GET", "/api/memory/items").then(function (d) {
+        var items = (d && d.items) || [];
+        list.innerHTML = "";
+        if (!items.length) { empty(state.enabled ? "Nothing remembered yet." : "Nothing remembered. Switch memory on to start."); return; }
+        allBtn.hidden = false;
+        items.forEach(function (m) {
+          var row = document.createElement("div");
+          row.className = "mem-row";
+          row.innerHTML = '<span class="mem-main"><div class="mem-text"></div><div class="mem-sub"></div></span><button class="btn sm" type="button">Forget</button>';
+          row.querySelector(".mem-text").textContent = m.memory;
+          row.querySelector(".mem-sub").textContent = m.updatedAt ? UI.relTime(m.updatedAt) : "";
+          var b = row.querySelector("button");
+          b.addEventListener("click", function () {
+            b.disabled = true;
+            sapi("DELETE", "/api/memory/items/" + encodeURIComponent(m.id))
+              .then(function () { row.remove(); if (!list.querySelector(".mem-row")) empty("Nothing remembered."); toast("ok", "Forgotten"); })
+              .catch(function (e) { b.disabled = false; toast("bad", e.message); });
+          });
+          list.appendChild(row);
+        });
+        if (d.total > items.length) {
+          var more = document.createElement("div");
+          more.className = "mem-more";
+          more.textContent = "…and " + (d.total - items.length) + " older ones.";
+          list.appendChild(more);
+        }
+      }).catch(function (e) { empty("Couldn\u2019t load memories: " + e.message); });
+    }
+    function load() {
+      UI.apiOptional("GET", "/api/memory").then(function (s) {
+        // null = this server has no memory routes (yet): keep the section hidden.
+        var has = !!(s && s.configured);
+        document.body.classList.toggle("has-memory", has);
+        if (!has) { if (active === "memory") go("profile"); return; }
+        if (wantedSection === "memory" && active !== "memory") go("memory");
+        render(s);
+        loadItems();
+      }).catch(function () { document.body.classList.remove("has-memory"); });
+    }
+    sw.addEventListener("click", function () {
+      if (!state) return;
+      var next = !state.enabled;
+      paint(next);
+      sw.disabled = true;
+      sapi("PUT", "/api/memory", { enabled: next })
+        .then(function (s) { render(s); loadItems(); toast("ok", next ? "Memory on" : "Memory off"); })
+        .catch(function (e) { paint(state.enabled); toast("bad", e.message); })
+        .then(function () { sw.disabled = false; });
+    });
+    allBtn.addEventListener("click", function () {
+      if (!window.confirm("Forget everything PlumiChat remembers about you? This can't be undone.")) return;
+      allBtn.disabled = true;
+      sapi("DELETE", "/api/memory")
+        .then(function (r) {
+          var k = (r && r.forgotten) || 0;
+          toast("ok", k ? "Forgot " + k + (k === 1 ? " memory" : " memories") : "Nothing to forget");
+          load();
+        })
+        .catch(function (e) { toast("bad", e.message); })
+        .then(function () { allBtn.disabled = false; });
+    });
+    load();
   })();
 
   /* ---------- theme ---------- */

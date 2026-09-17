@@ -3,6 +3,7 @@
 // reads, `echo`, `ls`, …) while permission-worthy ops (Write / Edit / unsafe
 // Bash / MCP writes / …) and the AskUserQuestion tool are routed to the human
 // via the `askUser` callback. Live token streaming via includePartialMessages.
+import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -94,7 +95,13 @@ const NODE_GLOBAL_MODULES = path.resolve(path.dirname(process.execPath), '..', '
 // VAPID_PRIVATE_KEY signs Web Push; push.js already deletes it from process.env at
 // import, but that only helps once push.js has been imported, so strip it here too
 // (engine.js keeps the same list — the two must not drift).
-const SECRET_ENV = ['AUTH_USER', 'AUTH_PASS', 'SESSION_SECRET', 'OPS_SIGNALS', 'VAPID_PRIVATE_KEY'];
+// PLUMI_MEMORY_KEY opens the memory server, which holds every account's
+// memories; server/memory.js is the only thing that should ever hold it.
+// AUTH_PIN_HASH is the scrypt hash of the old single global PIN. Nothing reads it
+// any more, but an install that predates per-account PINs may still carry it in
+// .env, and a 6-digit PIN hash is a short offline brute force away from a PIN
+// that may well have been reused.
+const SECRET_ENV = ['AUTH_USER', 'AUTH_PASS', 'SESSION_SECRET', 'OPS_SIGNALS', 'VAPID_PRIVATE_KEY', 'PLUMI_MEMORY_KEY', 'AUTH_PIN_HASH'];
 
 // PlumiChat is usually LAUNCHED from inside a Claude Code session (that's how the
 // owner operates the box), so our own process inherits that parent session's
@@ -131,6 +138,14 @@ const SAFE_TOOLS = new Set([
   // then runs (Bash / Write / Edit) is still independently checked below, so it's
   // safe to auto-allow and never prompt a member when a document skill activates.
   'Skill',
+  // Long-term memory (server/memory.js). The server behind both tools is bound to
+  // the calling account's container, so recall can only return the asker's own
+  // memories and remember can only add to them — the same footing as a member
+  // writing inside their own home. `remember` was prompted at first; that put an
+  // approval card under every "remember that…", and closed nothing: a finished turn
+  // is captured into the same container anyway.
+  'mcp__plumichat-memory__recall',
+  'mcp__plumichat-memory__remember',
 ]);
 
 // Turn the structured answer the browser sent back into a short natural-language
@@ -187,6 +202,13 @@ const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const APP_ENV = path.resolve(SERVER_DIR, '..', '.env');
 const OS_HOME = os.homedir();
+// The default install directory of a self-hosted Supermemory server: its provider
+// API keys, its own key, and the raw store of EVERY account's memories. Reading it
+// would bypass the per-account container that server/memory.js enforces. A server
+// whose data lives somewhere else (SUPERMEMORY_DATA_DIR) must keep it where a
+// member's shell cannot read it: under the workspace root, outside every member
+// home, is already hidden by the first entry of denyRead below.
+const MEMORY_HOME = path.join(OS_HOME, '.supermemory');
 
 // Sandbox settings for a MEMBER turn. Member Bash runs inside an OS sandbox — a
 // bubblewrap mount-namespace on Linux, seatbelt on macOS — where only `home` is
@@ -218,6 +240,8 @@ export function makeMemberSandbox(home) {
         APP_ENV,                                            // this app's own .env (API key, cookie secret, …)
         path.join(OS_HOME, '.ssh'),                         // ssh keys
         path.join(OS_HOME, '.claude', '.credentials.json'), // Claude credentials
+        // only when present, so a machine without memory keeps the exact list it had
+        ...(fs.existsSync(MEMORY_HOME) ? [MEMORY_HOME] : []),
       ],
     },
   };
@@ -373,7 +397,7 @@ async function has1mVariant(id) {
 //   { type: 'thinkingTokens', estimated }                           — throttled thinking-token estimate
 export async function runPrompt({
   prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
-  onEvent, askUser, allowAlways, abortController, canUseTool, sandbox,
+  onEvent, askUser, allowAlways, abortController, canUseTool, sandbox, memory,
 }) {
   // Capture the CLI subprocess's stderr. The SDK collapses a non-zero exit into a
   // generic "exited with code N" and discards the child's stderr — which is where
@@ -449,6 +473,15 @@ export async function runPrompt({
   // Member turns carry bubblewrap sandbox settings so their Bash is hard-confined
   // to their own home (see makeMemberSandbox). Owner/admin turns pass nothing.
   if (sandbox) options.sandbox = sandbox;
+  // Long-term memory (server/memory.js), for accounts that have it on: a recall
+  // hook that runs in THIS process, and the recall/remember tools, both already
+  // bound to that account's container. `mcpServers` ADDS to the servers the
+  // settings files configure; it does not replace them (verified: the claude.ai
+  // connectors were still listed next to it).
+  if (memory) {
+    if (memory.hooks) options.hooks = memory.hooks;
+    if (memory.mcpServers) options.mcpServers = memory.mcpServers;
+  }
   // 1M token context window. On the 5.x models this is selected by a '[1m]' SUFFIX
   // on the model id ('claude-opus-5' -> 'claude-opus-5[1m]') — exactly how the CLI's
   // own picker exposes it. The old `betas: ['context-1m-…']` header only ever applied

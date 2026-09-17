@@ -44,3 +44,6 @@ build/
 # Crash dumps (a killed node/chromium leaves these in the cwd)
 core
 core.*
+
+# built from scripts/supermemory/bind-loopback.c
+scripts/supermemory/*.so

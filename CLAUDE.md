@@ -88,6 +88,14 @@ permission mode server-side because `acceptEdits`/`bypassPermissions` skip
 `canUseTool`, which *is* the confinement. Both layers are fail-closed and must stay
 that way.
 
+**Memory is scoped by the server, never by the model.** `server/memory.js` derives
+each account's Supermemory container from the session; no tool argument, request
+field or prompt can name one. A self-hosted server trusts every localhost request,
+so member isolation is the sandbox (network namespace + `~/.supermemory` on
+`denyRead`), not the key, and member memory is only allowed where that was verified.
+Do not install Supermemory's Claude Code plugin to "simplify" this: it would run on
+member turns and pre-approve its own tools past `canUseTool`.
+
 **Platform differences go in `server/platform.js`,** never inline. Probe for a
 binary; never infer from `process.platform`. If a feature can be unavailable, give
 it a row in `server/capabilities.js` with a `reason` a human can act on.

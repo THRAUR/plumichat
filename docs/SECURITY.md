@@ -91,17 +91,43 @@ Be honest with yourself about this list:
   requests** unless you restrict that separately.
 - The **owner is not confined at all**, by design. The terminal is a real shell.
 
+## Long-term memory
+
+When a memory server is configured (`PLUMI_MEMORY_URL`), each account's memories
+live in their own Supermemory container, `plumichat_<account id>`.
+
+- **The server picks the container, never the model or the request.** Recall runs
+  as an in-process hook; the `recall`/`remember` tools are an in-process MCP server
+  built per turn around the caller's container; the Settings routes derive it from
+  the session. Forgetting an id from another container fails at Supermemory.
+- **The key never reaches a turn.** `PLUMI_MEMORY_KEY` is in the scrubbed list.
+- **A self-hosted server trusts every localhost request, with or without the key.**
+  So for a member, isolation is the sandbox, not the key: bubblewrap gives member
+  Bash its own network namespace (verified: the memory port is unreachable from
+  it), `~/.supermemory` is on the sandbox's `denyRead`, and WebFetch will not talk
+  plain HTTP. The server decides "localhost" from the `Host` header, so the same
+  holds for one on another address. Not yet verified for seatbelt, so on macOS a
+  member gets memory only from the hosted API.
+- **Supermemory's own Claude Code plugin is not used, on purpose.** Installed on the
+  box, it would run on member turns too, pre-approve its tools past `canUseTool`, and
+  let the model choose the container.
+- **What memory does not protect against:** the operator can read every container
+  (it is their server), and whichever model the memory server uses for extraction
+  receives the text of every remembered turn. Say which one in `PLUMI_MEMORY_NOTE`.
+
 ## Secrets
 
 - Secrets live only in `.env`, which is gitignored. Nothing else should hold them.
 - Agent turns run with a **scrubbed environment** (`scrubbedEnv()` in
-  `server/claude.js`): `AUTH_USER`, `AUTH_PASS`, `SESSION_SECRET`, `OPS_SIGNALS` and
-  `VAPID_PRIVATE_KEY` are removed, so a prompt cannot `printenv` its way to them.
+  `server/claude.js`): `AUTH_USER`, `AUTH_PASS`, `SESSION_SECRET`, `OPS_SIGNALS`,
+  `VAPID_PRIVATE_KEY`, `PLUMI_MEMORY_KEY` and a legacy `AUTH_PIN_HASH` are removed,
+  so a prompt cannot `printenv` its way to them.
 - `ANTHROPIC_API_KEY` is deliberately **kept** — the SDK subprocess needs it. An
   agent turn can therefore read your API key. There is no way around this while the
   agent runs as a child process; it is a reason to care who has an account.
 - For members, the sandbox additionally `denyRead`s the app's own `.env`, your
-  `~/.ssh`, and `~/.claude/.credentials.json`.
+  `~/.ssh`, `~/.claude/.credentials.json`, and a self-hosted memory server's
+  `~/.supermemory`.
 
 ## Sister-app single sign-on
 
