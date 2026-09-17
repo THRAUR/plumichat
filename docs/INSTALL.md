@@ -328,19 +328,32 @@ the sensor at all. The machine card therefore asks
 (free, open source), which runs elevated and serves its readings locally. It needs
 someone at the PC once, because it asks for admin rights:
 
-1. Download the latest release and unzip it somewhere permanent, e.g.
-   `C:\Tools\LibreHardwareMonitor`.
-2. Right-click `LibreHardwareMonitor.exe` → **Run as administrator**, and accept the
-   driver it asks to install.
-3. In **Options**, tick **Start Minimized**, **Minimize To Tray** and **Run On
-   Windows Startup**.
-4. **Options → Remote Web Server → Run** (port 8085). If Windows asks about the
-   firewall, allow **private** networks only.
+1. From its [releases page](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases),
+   download **`LibreHardwareMonitor.zip`**. The `LibreHardwareMonitor.NET.10.zip`
+   beside it needs a separate .NET runtime; this one runs on any Windows 10 or 11.
+   Unzip it into a new folder of its own that will stay put, e.g.
+   `C:\LibreHardwareMonitor`.
+2. Double-click `LibreHardwareMonitor.exe` and accept the admin prompt; it asks by
+   itself. With file extensions hidden, pick the file whose type is *Application*:
+   two settings files beside it carry almost the same name.
+3. When it asks **"PawnIO is not installed, do you want to install it?"**, click
+   **OK**. PawnIO is the driver it reads the CPU through. Without it the program
+   still runs and answers, but lists no CPU temperature, and the card says so.
+4. **Options → Remote Web Server → Run** (port 8085). Then, in **Options**, tick
+   **Run On Windows Startup**, **Start Minimized** and **Minimize On Close**, so it
+   comes back after a reboot and closing its window does not stop it.
 
 Within a minute the card shows the CPU temperature and power on its own; nothing
-needs a restart. Under WSL this needs **mirrored networking** (the default on
-current Windows 11 builds), so that `127.0.0.1` inside the VM reaches Windows. In
-NAT mode, set `PLUMI_SENSORS_URL` to the Windows host's address instead.
+needs a restart. Windows should not ask about the firewall: the web server runs
+inside Windows' own HTTP service, and the card reads it from the same PC. Keep port
+8085 closed to the network, because that server has no password by default and
+accepts fan-control commands.
+
+Under WSL this needs **mirrored networking** (`networkingMode=mirrored` under
+`[wsl2]` in `%UserProfile%\.wslconfig`), so that `127.0.0.1` inside the VM reaches
+Windows. In NAT mode `127.0.0.1` stays inside the VM: point `PLUMI_SENSORS_URL` at
+the Windows host's address (the VM's default gateway), and let the VM through
+Windows Firewall on port 8085.
 
 ### Two-copy deploy (advanced, off by default)
 

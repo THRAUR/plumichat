@@ -317,10 +317,21 @@ export function parseLhm(root) {
   };
 }
 
+// Whether the last question got an answer at all, with or without a CPU reading.
+// Set only once a question settles, so the reason does not flicker while one is
+// out.
+let sensorsHeard = false;
 async function askSensors() {
-  const r = await fetch(SENSORS_URL, { signal: AbortSignal.timeout(1500) });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return parseLhm(await r.json());
+  try {
+    const r = await fetch(SENSORS_URL, { signal: AbortSignal.timeout(1500) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const got = parseLhm(await r.json());
+    sensorsHeard = true;
+    return got;
+  } catch (e) {
+    sensorsHeard = false;
+    throw e;
+  }
 }
 
 async function readTemp() {
@@ -369,11 +380,17 @@ export async function cpuTempSource() {
 export function cpuTempReason() {
   if (SENSOR_FILE) return 'The CPU sensor gave no reading.';
   if (/^off$/i.test(String(process.env.PLUMI_SENSORS_URL || '').trim())) return 'Turned off with PLUMI_SENSORS_URL=off.';
+  // It answers, so it runs and its web server is on: what is missing is the driver
+  // behind the CPU readings. Current builds read them through PawnIO and offer to
+  // install it when they start, a prompt that is easy to cancel.
+  if (SENSORS_URL && sensorsHeard) {
+    return 'LibreHardwareMonitor answers but lists no CPU temperature, which usually means its PawnIO driver is missing. Restart it and click OK when it offers to install PawnIO.';
+  }
   if (SENSORS_URL && process.env.PLUMI_SENSORS_URL) {
     return 'No answer from LibreHardwareMonitor at PLUMI_SENSORS_URL. Is it running, with Options → Remote Web Server on?';
   }
   if (IS_WSL || IS_WINDOWS) {
-    return 'Windows only shows it to administrators. Run LibreHardwareMonitor on the PC as administrator, with Options → Remote Web Server turned on.';
+    return 'Windows only shows it to administrators. Run LibreHardwareMonitor on the PC (it asks for admin rights), let it install PawnIO, and turn on Options → Remote Web Server → Run.';
   }
   if (IS_MAC) return 'macOS only shows it to privileged tools.';
   return 'No CPU sensor in /sys/class/hwmon. Installing lm-sensors and loading the coretemp (Intel) or k10temp (AMD) module usually adds one.';
