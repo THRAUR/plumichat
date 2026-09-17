@@ -59,12 +59,13 @@ const NOTE = String(process.env.PLUMI_MEMORY_NOTE || '').trim().slice(0, 300);
 // noise on every turn.
 const RELATED_MIN = 0.5;
 // The profile ("About them": the lasting facts) goes into EVERY turn, so it is
-// bounded twice: a count, and a character budget of roughly 700 tokens.
-// Supermemory returns lasting facts in no particular order, so the count has to be
+// bounded twice: a count, and a character budget of roughly 1,100 tokens.
+// Supermemory returns lasting facts in no particular order, so both have to be
 // generous: at 8, a curated profile of a dozen facts lost a different third of
-// itself on every turn.
-const PROFILE_MAX = 30;
-const PROFILE_CHARS = 3000;
+// itself on every turn, and a real profile (who they are plus how their machine
+// works, 23 facts / 2.6k chars) left almost no room for facts learned later.
+const PROFILE_MAX = 40;
+const PROFILE_CHARS = 4500;
 
 // The in-process MCP server. The name is part of the tool names the model sees
 // (mcp__plumichat-memory__recall) and of SAFE_TOOLS in claude.js — rename both or
