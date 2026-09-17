@@ -200,6 +200,17 @@ plugin.
   **one document per conversation**: a repeated `customId` is an append, and only
   the new part is extracted (measured).
 
+**The profile goes once per context, not once per message.** An injected block
+stays in the conversation: a later turn can still quote something injected only
+into the first. Repeating the profile therefore grew a chat by about a thousand
+tokens a message. Recall now reads the session's own transcript (incrementally,
+from a cached offset) for earlier memory blocks and `compact_boundary` entries. It
+sends the opening block on a chat's first message and again after a compaction,
+and otherwise only facts the chat has not had. Facts extracted from the same chat
+are skipped too, since the model is already looking at their source. Reading the
+transcript instead of keeping state is what makes it survive a restart, a fork, and
+the Compact button, which is only a `/compact` message.
+
 Three things worth knowing before touching it:
 
 - **The assistant's words are context, not facts.** Without an `entityContext`

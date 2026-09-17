@@ -165,8 +165,10 @@ conversations and projects.
   handed to Claude as background, and your conversation still shows only what you
   typed. Claude can also search memory itself (`recall`), and save something when
   you say "remember that…" (`remember`).
-- **Your profile rides along with every message.** Lasting facts (your name, where
-  you live, your languages, your work, standing preferences) form it. Build it by
+- **Your profile comes along once per chat.** Lasting facts (your name, where you
+  live, your languages, your work, standing preferences) form it. It is given with
+  a chat's first message, and again after Compact. Later messages only add facts
+  the chat has not had yet, so a long chat does not keep paying for it. Build it by
   telling Claude about yourself, and say "add that to my profile" for anything that
   should always be known.
 - **It is per account.** Nobody else's turns can read your memories, and the
