@@ -454,7 +454,13 @@ export async function runPrompt({
       PATH: DOC_VENV_BIN ? `${DOC_VENV_BIN}${path.delimiter}${process.env.PATH || ''}` : (process.env.PATH || ''),
       NODE_PATH: NODE_GLOBAL_MODULES + (process.env.NODE_PATH ? path.delimiter + process.env.NODE_PATH : ''),
     },
-    skills: skillIds(),
+    // Plus one bundled skill, `workflow-authoring`. The filter is exact, and leaving
+    // that one out does not drop the Workflow tool: the CLI makes up for the missing
+    // skill by pasting the whole authoring guide into the tool's description, ~16.7k
+    // characters (~4k tokens) re-sent with every request of every turn. Listed, the
+    // description is ~5.4k characters and the guide loads only when a workflow is
+    // actually written. Measured by capturing the request the CLI sends.
+    skills: [...skillIds(), 'workflow-authoring'],
   };
   if (effort && EFFORTS.has(effort)) options.effort = effort;
   // Fast mode. It is NOT a top-level Option — `fastMode` is a *Settings* field —
