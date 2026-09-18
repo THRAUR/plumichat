@@ -3,6 +3,7 @@
 // per-user sandboxed project folders. The HTTP Basic-auth lifeline is preserved
 // underneath everything (maps to the owner) so a bug here can never lock the box out.
 import express from 'express';
+import compression from 'compression';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -92,6 +93,17 @@ for (const key of [
 resetTempEnv(process.env);
 
 const app = express();
+// Compress what the phone downloads. Nothing in front of this server does it:
+// `tailscale serve` passes bodies through untouched, so every cold load (the first
+// one after an update) carried ~700 KB of scripts and styles that gzip to ~220 KB,
+// and JSON answers shrink the same way. Event streams are the exception: the
+// compressor holds output back until it has a block's worth, so a live reply would
+// arrive in lumps. They are skipped by type rather than by trusting each stream
+// route to send `no-transform`, because the chat stream sends only `no-cache`.
+app.use(compression({
+  filter: (req, res) => !/^text\/event-stream/i.test(String(res.getHeader('Content-Type') || ''))
+    && compression.filter(req, res),
+}));
 app.use(express.json({ limit: '1mb' }));
 
 // Baseline security headers on everything this server sends. `nosniff` stops a
