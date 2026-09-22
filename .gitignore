@@ -29,6 +29,12 @@ data/
 # directory only, and a node_modules SYMLINK (handy for local testing) is a file,
 # so it would sail straight past and get committed.
 node_modules
+# The ROLLBACK of the last engine update, on a box that has the two-copy deploy
+# turned on (PLUMI_LIVE_CLONE). engine-ship.js renames the live tree aside instead
+# of deleting it, and the detached watchdog restores it if the server does not come
+# back up; it stays until the next update replaces it. `node_modules` does not match
+# this name, so without the line a single `git add -A` stages half a gigabyte.
+node_modules.previous
 __pycache__/
 *.py[cod]
 .venv/
