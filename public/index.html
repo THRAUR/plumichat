@@ -506,8 +506,10 @@
            driven by arrows plus Enter, so without these the terminal is unusable
            on a phone: you cannot get past the first question. Each button writes
            the raw escape sequence straight down the same socket as typing — all
-           but "copy", which opens the copy sheet: xterm paints its own text, so
-           there is nothing in the terminal a thumb can select. -->
+           but the last two, which are the clipboard: xterm paints its own text
+           and its input is a 1px textarea under the cursor, so there is nothing
+           here a thumb can select OR long-press to paste into. "copy" opens the
+           copy sheet, "paste" reads the clipboard (see panels/terminal.js). -->
       <div class="term-keys" id="termKeys" hidden role="group" aria-label="Terminal keys">
         <button type="button" data-k="&#x1b;[A" aria-label="Up">↑</button>
         <button type="button" data-k="&#x1b;[B" aria-label="Down">↓</button>
@@ -519,6 +521,7 @@
         <button type="button" data-k="&#x1b;" aria-label="Escape" class="wide">esc</button>
         <button type="button" data-k="&#x03;" aria-label="Control C" class="wide danger">^C</button>
         <button type="button" id="termCopy" aria-label="Copy from the terminal" class="wide">copy</button>
+        <button type="button" id="termPaste" aria-label="Paste into the terminal" class="wide">paste</button>
       </div>
     </aside>
   </div>
@@ -612,9 +615,13 @@
       /* Focusing the composer is the moment the reveal happens, and iOS runs it
          over several frames while the keyboard animates — a single correction on
          the resize event lands too early to stick. Re-assert through the
-         animation instead. Cheap: a handful of no-op reads on one tap. */
+         animation instead. Cheap: a handful of no-op reads on one tap.
+         The terminal is in here for the same reason: xterm's helper textarea
+         sits under the cursor, near the BOTTOM of a full-screen panel, so it is
+         the element iOS most wants to scroll the page for — and the panel it
+         scrolls away is the one you are typing into. */
       document.addEventListener("focusin", function (e) {
-        if (!e.target || !e.target.closest || !e.target.closest(".composer")) return;
+        if (!e.target || !e.target.closest || !e.target.closest(".composer, .term-surface")) return;
         var t = 0, iv = setInterval(function () {
           unscroll();
           if ((t += 60) > 600) clearInterval(iv);

@@ -2705,9 +2705,19 @@ body.embed .sidebar-resizer { display: none !important; }
 .term-live .term-choice-name { color: var(--text); }
 
 @media (max-width: 560px) {
+  /* --term-top / --term-vh are written onto this element by the visualViewport
+     follower in js/panels/terminal.js; --app-h (the whole-app one) is the
+     fallback for the frame before the first pass, and for a browser without
+     visualViewport. The terminal needs its own pair because it is the one panel
+     you type into at its BOTTOM edge: --app-h alone gets the height right but
+     leaves the panel anchored to a layout-viewport top that iOS has already
+     slid off screen to reveal the cursor, which showed you the top of the
+     terminal while you typed at the bottom of it. */
   .term-modal {
-    width: 100vw; height: var(--app-h, 100dvh); max-height: var(--app-h, 100dvh);
-    left: 0; top: 0; border-radius: 0; transform: translateY(1.5%);
+    width: 100vw;
+    height: var(--term-vh, var(--app-h, 100dvh));
+    max-height: var(--term-vh, var(--app-h, 100dvh));
+    left: 0; top: var(--term-top, 0px); border-radius: 0; transform: translateY(1.5%);
   }
   .term-modal.open { transform: translateY(0); }
   /* The titlebar is tight on a phone — Terminal + status + Design sync + two icons.

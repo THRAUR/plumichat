@@ -346,6 +346,13 @@ black behind any transparency, so a pre-rounded icon ships four black corners.
   you were already near the bottom — a reader parked mid-history is left alone.
 - The terminal key bar uses `pointerdown` + `preventDefault`, **not** `click`: a
   click moves focus off the terminal and dismisses the keyboard between every key.
+- The terminal panel takes its geometry from `visualViewport` directly
+  (`--term-top` / `--term-vh`, written by `panels/terminal.js`) rather than from
+  `--app-h` alone. It is the one panel you type into at its *bottom* edge, and iOS
+  pins `position: fixed` to the layout viewport it then slides away to reveal the
+  cursor — right height, wrong top edge. Each pass also refits xterm and scrolls it
+  to the bottom, because Safari will scroll `.xterm-viewport` itself to reveal the
+  helper textarea sitting under the cursor.
 
 ---
 

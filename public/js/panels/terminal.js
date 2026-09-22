@@ -2,7 +2,7 @@ import { apiFetch } from '../api.js';
 import { $, toast } from '../dom.js';
 import { closeDrawer } from '../library.js';
 import { relTime } from './notepad.js';
-import { confirmSheet } from '../sheet.js';
+import { confirmSheet, promptSheet } from '../sheet.js';
 import { copyKey, decodeOsc52, deliverCopy, openCopySheet } from './term-copy.js';
 
 /* ===================== Terminal (owner-only) =========================== */
@@ -67,6 +67,65 @@ export function initTerminal() {
       try { fit.fit(); } catch (e) { return; }
       sendResize();
     }
+
+    /* ---------------- The phone keyboard -----------------------------------
+       Typing here was near enough impossible on a phone: the keyboard slides up
+       and the terminal goes on showing its TOP, with the line you are typing
+       behind the keys. Signing back in to Claude is what proved it — the CLI
+       prints a code to paste, and you could not see the prompt asking for it.
+       Two separate causes, both handled here.
+
+       1. Geometry. The panel is cut to --app-h (the visual-viewport shell at the
+          foot of index.html), but iOS pins position:fixed to the LAYOUT viewport
+          — the one the keyboard does NOT shrink — and then reveals the focused
+          element by sliding the VISUAL viewport down over it. Right height,
+          wrong top edge. So follow visualViewport ourselves and hand the phone
+          media query the exact visible strip as --term-top / --term-vh.
+       2. Scroll. Losing half its rows leaves xterm's viewport parked where it
+          was, and Safari will scroll .xterm-viewport itself to "reveal" the
+          helper textarea sitting under the cursor. Refit, then put the bottom
+          back on screen.
+
+       Coalesced to one pass per frame (visualViewport fires per frame while a
+       finger pans) and repeated after the event, because the keyboard takes a
+       few hundred ms to slide and the first pass measures a box still moving. */
+    var vv = window.visualViewport;
+    var vvRaf = 0, settleT = null, settleT2 = null;
+
+    function keepBottom() {
+      if (!term) return;
+      fitNow();
+      try { term.scrollToBottom(); } catch (e) {}
+      // The DOM scroller, not the buffer: scrollToBottom() does nothing when the
+      // buffer is already at the bottom, which is exactly the case where Safari
+      // has scrolled this element out from under the cursor.
+      var vp = surface.querySelector(".xterm-viewport");
+      if (vp) vp.scrollTop = vp.scrollHeight;
+    }
+    function followViewport() {
+      vvRaf = 0;
+      if (!open || !vv) return;
+      if (vv.scale > 1.01) return;   // pinch-zoomed on purpose — leave the panel alone
+      modal.style.setProperty("--term-top", Math.round(vv.offsetTop) + "px");
+      modal.style.setProperty("--term-vh", Math.floor(vv.height) + "px");
+      keepBottom();
+    }
+    // Nothing to follow while the panel is shut — and visualViewport fires on
+    // every frame of a pan in the chat underneath.
+    function scheduleFollow() { if (vv && open && !vvRaf) vvRaf = requestAnimationFrame(followViewport); }
+    function settleViewport() {
+      scheduleFollow();
+      clearTimeout(settleT); clearTimeout(settleT2);
+      settleT = setTimeout(scheduleFollow, 180);
+      settleT2 = setTimeout(scheduleFollow, 420);
+    }
+    if (vv) {
+      vv.addEventListener("resize", settleViewport);
+      vv.addEventListener("scroll", scheduleFollow);
+    }
+    // Focus is the moment the keyboard is asked for; iOS then reveals over
+    // several frames, so re-assert through the animation rather than once.
+    surface.addEventListener("focusin", settleViewport);
 
     function ensureTerm() {
       if (term) return;
@@ -292,11 +351,17 @@ export function initTerminal() {
       closeDrawer();
       overlay.classList.add("open"); modal.classList.add("open");
       modal.setAttribute("aria-hidden", "false");
+      settleViewport();          // size to the visible strip before it slides in
     }
     function hidePanel() {
       open = false;
       overlay.classList.remove("open"); modal.classList.remove("open");
       modal.setAttribute("aria-hidden", "true");
+      // Drop the measurements: they would otherwise be the height the panel
+      // animates OUT of the next time it opens — the keyboard may have been up
+      // (in the chat composer) when we last looked.
+      modal.style.removeProperty("--term-top");
+      modal.style.removeProperty("--term-vh");
     }
     // Swap the modal body between the project picker and the live terminal. The
     // key bar belongs to the terminal view only — the chooser is a tap list.
@@ -413,6 +478,69 @@ export function initTerminal() {
       openCopySheet(term, lastCopy);
       try { term.blur(); } catch (err) {}
     });
+
+    /* "paste" — copy's other half, and the one the sign-in dance needed: Claude
+       prints a code in the browser, and there was no way to get it back into the
+       prompt asking for it. A phone pastes by long-pressing a text box, and this
+       terminal has none you can reach — xterm paints its own screen and its only
+       real input is a 1px textarea parked under the cursor.
+         - pointerdown/preventDefault like a key, NOT like the copy button: the
+           tap must not move focus off the terminal, or the keyboard drops away
+           between copying and pasting. The work happens in the pointerdown too,
+           because WebKit treats a cancelled pointerdown as a cancelled touch and
+           may never fire the click — the click listener is the fallback for a
+           browser that sends no pointer events, and for ⏎ on a focused button,
+           and the guard is what stops a browser that sends BOTH from pasting
+           twice.
+         - term.paste() rather than a raw {t:"i"}: it folds CRLF into CR and wraps
+           the text in bracketed-paste markers when the program turned them on,
+           which is what stops a multi-line paste from running itself line by
+           line. It reaches the socket through onData, same as typing.
+         - Reading the clipboard is permission-gated — Safari answers with its own
+           "Paste" popup (one extra tap), Firefox refuses outright — so a refusal
+           falls back to a sheet with a real input a thumb CAN long-press into. */
+    function pasteIntoShell(text) {
+      // A copied line usually drags a newline along, and sending it would press ⏎
+      // for you. For a sign-in code that is the difference between checking it and
+      // having submitted it; the ⏎ key is right there in the bar.
+      var s = String(text == null ? "" : text).replace(/[\r\n]+$/, "");
+      if (!s) { toast("Nothing on the clipboard", true); return; }
+      if (!term || !ws || ws.readyState !== 1) { toast("Not connected — the paste would go nowhere", true); return; }
+      lastInputAt = Date.now();
+      try { term.paste(s); } catch (err) { toast("Paste failed", true); return; }
+      try { term.focus(); } catch (err) {}
+      keepBottom();
+      toast("Pasted — press ⏎ when it looks right");
+    }
+    function askForPaste() {
+      promptSheet({
+        title: "Paste into the terminal",
+        message: "Your browser would not hand the clipboard over on its own. "
+          + "Long-press the box below, choose Paste, then Send.",
+        submitLabel: "Send",
+        onSubmit: pasteIntoShell,
+      });
+    }
+    var lastPasteTap = 0;
+    function pasteTapped() {
+      if (Date.now() - lastPasteTap < 700) return;   // the same tap, arriving twice
+      lastPasteTap = Date.now();
+      if (!term || !ws || ws.readyState !== 1) { toast("Not connected — start a shell first", true); return; }
+      var read = null;
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) read = navigator.clipboard.readText();
+      } catch (err) {}
+      if (!read) { askForPaste(); return; }
+      read.then(function (text) {
+        if (String(text || "").trim()) pasteIntoShell(text);
+        else askForPaste();            // empty, or a clipboard we cannot see
+      }, askForPaste);                 // refused, dismissed, or not permitted
+    }
+    var pasteBtn = document.getElementById("termPaste");
+    if (pasteBtn) {
+      pasteBtn.addEventListener("pointerdown", function (e) { e.preventDefault(); pasteTapped(); });
+      pasteBtn.addEventListener("click", pasteTapped);
+    }
 
     /* A terminal-only slash command picked from the chat palette (see
        panels/commands.js). It cannot run in the chat engine, so it arrives here

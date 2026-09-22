@@ -266,6 +266,14 @@ temperature on Windows and WSL needs LibreHardwareMonitor; see
   interrupts, and ⌘C works on a Mac. A program's copy only reaches the device you
   were typing on; Safari allows a clipboard write only during a tap, so on an iPhone
   it arrives as a **Tap to copy** notice.
+- **Pasting in.** The **paste** key beside it goes the other way: it reads your
+  clipboard and types it into the shell — there is no text box here for a phone to
+  long-press, which is why getting a sign-in code from the browser back into the
+  prompt asking for it used to be impossible. A trailing newline is dropped, so
+  nothing is submitted until you press ⏎ yourself, and a multi-line paste arrives
+  as a paste rather than as a run of commands. If the browser will not hand the
+  clipboard over — Safari asks first, Firefox refuses outright — you get a box to
+  long-press into instead.
 - **Signing an MCP server in from a phone.** Approving sends your browser back to a
   `localhost` address, and on a phone that page cannot load — `localhost` there is
   the phone, not this machine. That is expected: copy the address of the failed page
@@ -402,6 +410,9 @@ Two honest caveats:
 
 - **Enter to send** or **Enter for newline** — your choice, remembered.
 - The **terminal key bar** exists because phone keyboards have no arrow keys.
+- The **terminal panel follows the visual viewport** while the keyboard is up, and
+  keeps the terminal scrolled to the bottom, so you are looking at the line you are
+  typing rather than at the top of the screen with the prompt behind the keys.
 - The layout is built around the iOS keyboard's habit of shrinking only the *visual*
   viewport: the app re-anchors the conversation when the keyboard opens, and undoes
   iOS's reveal-the-input scroll, so tapping the composer does not jump you into

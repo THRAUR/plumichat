@@ -109,6 +109,19 @@ a link no browser will open. `tidyCopy` glues a URL-only line onto a line that e
 inside a link of 24+ characters; the floor is what keeps `…/done` above a one-word
 line as two lines.
 
+**Pasting IN is `term.paste()`, and the panel sizes itself from `visualViewport`.**
+The `paste` key beside `copy` exists because xterm's only real input is a 1px
+textarea parked under the cursor: a phone has nothing to long-press, so a sign-in
+code copied in the browser had no way back into the prompt asking for it. It acts
+on `pointerdown` — WebKit can swallow the click of a cancelled touch — with the
+click as a fallback and a 700ms guard, so a browser that sends both still pastes
+once. `term.paste()` and not a raw `{t:"i"}`: bracketed paste is what stops a
+multi-line paste running itself. `--term-top` / `--term-vh` are written by
+`panels/terminal.js` and read by `.term-modal` in the phone media query. `--app-h`
+alone gets the height right but leaves the panel anchored to a layout-viewport top
+iOS has already slid away to reveal the cursor — which is how you ended up reading
+the TOP of the terminal while typing at the bottom of it.
+
 ## Wire-protocol pairs
 
 These are matched. Rename one half and downloads or notification tap-through fail
