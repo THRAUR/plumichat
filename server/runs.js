@@ -15,6 +15,7 @@ import { touchContext } from './context.js';
 import { recordTurn, spendGate } from './spend.js';
 import { sendToUser } from './push.js';
 import { turnMemory, captureTurn } from './memory.js';
+import { turnImage } from './imagegen.js';
 import { compactAtFor } from './users.js';
 
 const runs = new Map();          // key (sessionId | tempId) -> Run
@@ -391,6 +392,11 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
   // directly and so never gets it: an autonomous run is not a conversation to
   // remember.
   const memory = turnMemory(userId);
+  // Making pictures, when this box has a generator (server/imagegen.js). Decided
+  // from the ACCOUNT for the same reason as memory: the account is what decides
+  // which gallery folder the file may land in, and no request field or prompt is
+  // allowed a say in that.
+  const imagegen = turnImage(userId);
   // The account's compaction point, read here for the same reason as memory: a
   // queued or resumed turn must compact where the person's own turn would.
   const compactAt = compactAtFor(userId);
@@ -401,7 +407,7 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     try {
       outcome = await runPrompt({
         prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
-        onEvent, askUser, allowAlways, abortController: run.abort, canUseTool, sandbox, memory, compactAt,
+        onEvent, askUser, allowAlways, abortController: run.abort, canUseTool, sandbox, memory, imagegen, compactAt,
       });
     } catch (err) {
       if (!run.errorMsg) run.errorMsg = err?.message || String(err);

@@ -315,6 +315,60 @@ export function memoryStatsCommand() {
 // Windows has no load average: os.loadavg() answers [0, 0, 0] there.
 export function hasLoadAverage() { return !IS_WINDOWS; }
 
+/* ---------------------------- image generation ---------------------------- */
+
+// Where the local image generator lives: stable-diffusion.cpp's `sd` binary and the
+// model files beside it. OFF unless PLUMI_IMAGE_DIR names the folder it was
+// installed into — the same discipline as PLUMI_LIVE_CLONE, because a folder
+// holding several gigabytes of weights is a property of one machine and must never
+// be guessed at from the platform.
+//
+// `kind` is the part a caller cannot work out for itself. On WSL with an NVIDIA
+// card the *Windows* build is the CUDA one — upstream ships no Linux CUDA binary,
+// only CPU/Vulkan/ROCm — and a Windows program launched from WSL is an ordinary
+// child process, except that every path handed to it has to be a Windows path. It
+// has no idea /mnt/c exists. So the kind travels with the command, and winPath()
+// below is what the caller uses on each argument.
+export function imageGenSource() {
+  const root = process.env.PLUMI_IMAGE_DIR;
+  if (!root) return null;
+  const at = (...p) => path.join(root, ...p);
+  // Two binaries out of the same release, and both are wanted.
+  //
+  // `cmd` is the one-shot CLI: load, write a file, exit. It is the floor — it needs
+  // nothing but a working directory, so it is what an install always falls back to.
+  //
+  // `server` is the resident one. It keeps the weights loaded between pictures,
+  // which is worth roughly two thirds of the wall clock (measured on an 8 GB card:
+  // 44s per picture cold, 17s warm), and it is also where the upstream WebUI and the
+  // job API live. It is OPTIONAL and reported separately: an older release, or a
+  // build that only shipped the CLI, still generates pictures — just slower.
+  const win = firstOf([at('bin', 'sd-cli.exe'), at('bin', 'sd.exe'), at('sd-cli.exe'), at('sd.exe')]);
+  const winServer = firstOf([at('bin', 'sd-server.exe'), at('sd-server.exe')]);
+  if (win) return { cmd: win, server: winServer || null, kind: 'windows', root };
+  // A box that built sd itself, or a native Windows install: same binaries, paths
+  // already in the form they expect.
+  const native = firstOf([at('bin', 'sd-cli'), at('bin', 'sd'), at('sd-cli'), at('sd')]);
+  const nativeServer = firstOf([at('bin', 'sd-server'), at('sd-server')]);
+  if (native) return { cmd: native, server: nativeServer || null, kind: 'native', root };
+  return null;
+}
+
+// Translate a path this process can open into one a Windows program can open.
+// Pure string work on purpose: `wslpath` would be a subprocess per argument, and
+// the only shape that ever reaches here is a drive mounted under /mnt.
+//
+// Returns null when there is no Windows form — which is the important case, not an
+// edge case: WORKSPACES_ROOT normally lives on the Linux filesystem, reachable from
+// Windows only over a \\wsl.localhost UNC path that some programs refuse outright.
+// Callers must therefore keep the generator's own files on the Windows side and
+// move the result across themselves, rather than asking it to write to ext4.
+export function winPath(p) {
+  const m = /^\/mnt\/([a-zA-Z])(\/.*)?$/.exec(path.resolve(p));
+  if (!m) return null;
+  return m[1].toUpperCase() + ':' + (m[2] || '\\').replace(/\//g, '\\');
+}
+
 /* ------------------------------ misc helpers ------------------------------ */
 
 // The server can inherit a TMPDIR from whatever launched it — a parent Claude Code

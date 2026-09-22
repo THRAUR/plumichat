@@ -26,6 +26,7 @@ import {
 } from './platform.js';
 import { ssoConfigured } from './apps.js';
 import { memoryConfigured, memoryBackend } from './memory.js';
+import { imagegenStatus, imagegenStudio } from './imagegen.js';
 import { cpuTempSource, cpuTempReason } from './machine.js';
 
 const yes = (detail) => ({ available: true, reason: '', detail: detail || '' });
@@ -52,6 +53,8 @@ export async function capabilities() {
   const claudeCli = which('claude');
   const wifi = wifiSource();
   const tempSource = await cpuTempSource();
+  const imageGen = imagegenStatus();
+  const imageStudio = imagegenStudio();
 
   return {
     platform: { label: platformLabel(), wsl: IS_WSL, node: process.version },
@@ -111,6 +114,15 @@ export async function capabilities() {
     memory: memoryConfigured()
       ? yes(`Supermemory on ${memoryBackend()}`)
       : no('No memory server configured. Set PLUMI_MEMORY_URL (and PLUMI_MEMORY_KEY) to a Supermemory server to remember across conversations — see docs/INSTALL.md.'),
+    // Making pictures locally (server/imagegen.js): a stable-diffusion.cpp binary
+    // and at least one model whose files are all present. Opt-in, so OFF on every
+    // box that has not set PLUMI_IMAGE_DIR — several gigabytes of weights is not
+    // something to assume.
+    imageGen: imageGen.ok ? yes(imageGen.detail) : no(imageGen.reason),
+    // The generator's own web page, proxied at /sdui behind requireOwner. Needs the
+    // resident binary specifically, so it can be unavailable on an install whose
+    // pictures work perfectly well.
+    imageStudio: imageStudio.ok ? yes(imageStudio.detail) : no(imageStudio.reason),
 
     // --- the machine card (top of the side menu) ------------------------------
     // The card itself needs nothing: CPU, RAM and disks read everywhere. These are

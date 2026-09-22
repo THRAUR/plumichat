@@ -11,6 +11,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import { exec, execFile } from 'node:child_process';
+import { Readable } from 'node:stream';
 import yazl from 'yazl';
 import { startRun, subscribe, respondAsk, askRun, stopRun, listRuns, getRun } from './runs.js';
 import {
@@ -29,6 +30,7 @@ import { exportAnswer } from './export.js';
 import { listModels } from './models.js';
 import { listSites, SITE_GROUPS } from './sites.js';
 import { machineSnapshot } from './machine.js';
+import { imagePresets, startImageJob, readImageJob, imageGallery, ensureEngine, engineState } from './imagegen.js';
 import { appById, appLoginContext, appForOrigin } from './apps.js';
 import { changePassword, setEnvVar } from './credentials.js';
 import { getWorkspace, setWorkspace } from './settings.js';
@@ -104,6 +106,65 @@ app.use(compression({
   filter: (req, res) => !/^text\/event-stream/i.test(String(res.getHeader('Content-Type') || ''))
     && compression.filter(req, res),
 }));
+// --- The generator's own WebUI, served through this server's owner check --------
+//
+// sd-server.exe carries a complete web front end inside the binary (prompt, negative
+// prompt, sampler, CFG, steps, img2img). Rather than rebuild any of that, it is
+// proxied — but it has no authentication of its own, so it may never be published
+// directly; this is the only door to it, and requireOwner is the lock. Owner, not
+// admin: it drives the machine's GPU and accepts arbitrary generation work.
+//
+// Mounted HERE, above express.json, on purpose: the request body has to stay an
+// unread stream so an img2img upload can be piped straight through instead of being
+// parsed, capped at 1mb and re-serialised.
+//
+// Two prefixes, and only two. The page turns out to be a single self-contained
+// document with its bundle inlined — it loads nothing from /assets and calls
+// nothing but /sdcpp/v1 (capabilities, img_gen, and the jobs URL each job hands
+// back). That was checked rather than assumed, and it is why this does not mount
+// /assets or /sdapi: an owner-only catch-all on a name this generic would sit in
+// front of any route PlumiChat itself might want there later.
+const SD_PROXY_PREFIXES = ['/sdui', '/sdcpp'];
+for (const prefix of SD_PROXY_PREFIXES) app.use(prefix, sdStudioProxy);
+
+async function sdStudioProxy(req, res) {
+  const user = currentUser(req);
+  if (!user || user.role !== 'owner') return res.status(403).type('text/plain').send('owner access required');
+
+  let eng = null;
+  try { eng = await ensureEngine(null); } catch { eng = null; }
+  if (!eng) {
+    const why = engineState().fault || 'the resident engine is not configured on this machine.';
+    return res.status(503).type('text/plain').send(`The picture studio needs the resident engine. ${why}`);
+  }
+
+  // /sdui is this server's name for the engine's root; everything else keeps its
+  // path, because that is what the page asks for.
+  const upstream = req.baseUrl === '/sdui'
+    ? (req.url === '/' ? '/' : req.url)
+    : req.baseUrl + req.url;
+
+  const init = { method: req.method, headers: {}, redirect: 'manual' };
+  for (const h of ['content-type', 'accept', 'accept-language', 'range']) {
+    if (req.headers[h]) init.headers[h] = req.headers[h];
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') { init.body = req; init.duplex = 'half'; }
+
+  let up;
+  try { up = await fetch(`http://127.0.0.1:${engineState().port}${upstream}`, init); }
+  catch (err) { return res.status(502).type('text/plain').send(`The engine did not answer (${err.message}).`); }
+
+  res.status(up.status);
+  // content-encoding and content-length describe the body fetch already decoded for
+  // us; passing them on would describe a body that is no longer there.
+  for (const [k, v] of up.headers) {
+    if (/^(transfer-encoding|connection|content-encoding|content-length)$/i.test(k)) continue;
+    res.setHeader(k, v);
+  }
+  if (!up.body) return res.end();
+  Readable.fromWeb(up.body).on('error', () => res.destroy()).pipe(res);
+}
+
 app.use(express.json({ limit: '1mb' }));
 
 // Baseline security headers on everything this server sends. `nosniff` stops a
@@ -714,6 +775,38 @@ app.get('/api/sites', requireOwner, async (req, res) => {
 app.get('/api/machine', requireOwner, (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json(machineSnapshot());
+});
+
+// --- Making a picture from the Pictures panel ----------------------------------
+//
+// requireAuth, not requireOwner: a member making their own pictures is the point.
+// What keeps that safe is not the gate but the fact that NOTHING here takes a path.
+// The folder is derived from req.user, a job is only readable by the account that
+// started it, and the finished file goes back out through /api/thumb, which re-runs
+// containment on the way. These handlers run in the server process, outside the
+// bubblewrap sandbox — so they are the confinement, not something it protects.
+app.get('/api/image/presets', requireAuth, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(imagePresets());
+});
+
+app.post('/api/image/generate', requireAuth, (req, res) => {
+  try { res.json(startImageJob(req.user, req.body || {})); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// Polled while the panel is open. A job id belonging to someone else does not
+// exist — there is nothing to learn from the difference between that and a typo.
+app.get('/api/image/job/:id', requireAuth, (req, res) => {
+  const job = readImageJob(req.user, req.params.id);
+  if (!job) return res.status(404).json({ error: 'no such job' });
+  res.set('Cache-Control', 'no-store');
+  res.json(job);
+});
+
+app.get('/api/image/gallery', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ pictures: imageGallery(req.user, Number(req.query.limit) || 24) });
 });
 
 // --- Notepad: a per-user synced scratchpad (text clips + small file drops) that

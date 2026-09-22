@@ -31,6 +31,8 @@ export function capabilities() {
 
 // nav row id -> the capability that has to be available for it to do anything.
 var GATED_ROWS = {
+  imagesNav: "imageGen",
+  studioNav: "imageStudio",
   terminalNav: "terminal",
   sitesNav: "sites",
   opsNav: "operations",

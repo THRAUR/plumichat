@@ -277,6 +277,101 @@ summary.
 | `PLUMI_SENSORS_URL` | Where the machine card asks LibreHardwareMonitor for the CPU temperature. Default on Windows/WSL: `http://127.0.0.1:8085/data.json`; `off` disables it. |
 | `PLUMI_NET_TARGETS` | `host:port` pairs the card's internet check times (default `1.1.1.1:443,8.8.8.8:443`); `off` disables the check and the connection grade. |
 | `PLUMI_MACHINE_NAME` | The name on the machine card. Default: the server's time zone, e.g. "Paris, France". |
+| `PLUMI_IMAGE_DIR` | A stable-diffusion.cpp install, to make pictures locally. Unset = no image tool. See below. |
+| `PLUMI_IMAGE_SCRATCH` | Where the generator writes before the file is moved into the account's gallery. Default: `<PLUMI_IMAGE_DIR>/out`. |
+| `PLUMI_IMAGE_TIMEOUT_MS` | Ceiling on one picture (default 300000). |
+| `PLUMI_IMAGE_MIN_VRAM_MB` | Refuse rather than load a model when the card has less free than this (default 4500). |
+| `PLUMI_IMAGE_KEEP_DAYS` / `PLUMI_IMAGE_KEEP_MB` | How long and how much of each account's gallery to keep (default 30 days / 2048 MB). |
+| `PLUMI_IMAGE_ENGINE` | `auto` (default), `server` or `cli`. `auto` keeps the model loaded between pictures when it can and falls back on its own when it cannot; `cli` turns that off, and with it the studio page. |
+| `PLUMI_IMAGE_PORT` | Loopback port for the resident engine (default 1234). Change it if something else already listens there. |
+| `PLUMI_IMAGE_IDLE_MS` | Unload the model after this long with no pictures (default 900000 — 15 minutes). |
+| `PLUMI_IMAGE_BOOT_MS` | How long to wait for the engine to finish loading before giving up on it (default 240000). |
+| `PLUMI_IMAGE_FORMAT` | `webp` (default), `png` or `jpeg`. |
+| `PLUMI_IMAGE_QUALITY` | Compression quality, 50–100 (default 92). Ignored for PNG. |
+
+### Making pictures locally (optional)
+
+If the box has an NVIDIA card with about 6 GB of VRAM free, it can generate images
+in the chat with no API and no cost. PlumiChat drives
+[stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp).
+
+1. Download a release for your machine and unpack it, so the binaries are at
+   `<dir>/bin/sd-cli` and `<dir>/bin/sd-server` (`.exe` on Windows, and see the WSL
+   note below). Both ship in the same release; `sd-server` is optional but it is
+   what makes pictures fast — see *Keeping the model loaded* below.
+2. Put a model's files under `<dir>/models/`. The built-in default expects
+   **Z-Image Turbo** — 6B parameters, 8 steps, happy on an 8 GB card:
+
+   | File | From |
+   |---|---|
+   | `z_image_turbo-Q4_K.gguf` | `leejet/Z-Image-Turbo-GGUF` |
+   | `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | `unsloth/Qwen3-4B-Instruct-2507-GGUF` |
+   | `ae.safetensors` | `Comfy-Org/z_image_turbo`, under `split_files/vae/` |
+
+3. Set `PLUMI_IMAGE_DIR` to that folder and restart. The startup banner says what is
+   still missing if anything is; `GET /api/capabilities` has the same answer.
+
+Any other model is a `presets.json` in that folder, no code change — copy
+`imagegen.config.example.json` from the repo root. Its `args` are passed to the
+binary verbatim, which is what lets a model with a different text encoder (`--t5xxl`
+and `--clip_l` rather than `--llm`) work without one.
+
+**Under WSL**, use the **Windows** build. Upstream ships no Linux CUDA binary, so on
+a WSL box with an NVIDIA card the Windows `sd-cli.exe` is the one with CUDA in it —
+PlumiChat launches it like any other child process. Keep the install on a Windows
+drive (`/mnt/c/...`): a Windows program cannot usefully write into the Linux
+filesystem, so the picture is written on its side and moved across afterwards.
+
+Pictures land in a `.plumi-images` folder inside the account's own home, which is
+where the file picker, the thumbnails and the Download box can all reach them, and
+nowhere else — a member's pictures are inside their home like everything else of
+theirs. The model never gets to name a path.
+
+#### Keeping the model loaded
+
+`sd-cli` loads every weight file on every run, so most of the wait is not drawing.
+Measured on one 8 GB card with Z-Image Turbo at 8 steps:
+
+| | Per picture |
+|---|---|
+| `sd-cli`, one run per picture | **44–46 s**, of which ~30 s is loading 6.4 GB |
+| `sd-server` resident, already loaded | **17 s** |
+| First picture after the server starts | ~46–53 s (that one pays the load) |
+
+So PlumiChat starts `sd-server` on loopback, keeps it, and unloads it again after
+`PLUMI_IMAGE_IDLE_MS` of quiet — it holds about 4.4 GB of the card while warm and
+gives all of it back when the timer fires. The engine is **probed, never assumed**:
+if it does not answer, the reason is logged once and every picture still gets made
+by `sd-cli`, one load at a time. `PLUMI_IMAGE_ENGINE=cli` forces that.
+
+Output is **webp at quality 92** by default rather than PNG. A 1216×832 picture is
+roughly 150–300 KB instead of 2 MB, which is most of the remaining wait if you are
+reading over a phone connection from the other side of the world.
+`PLUMI_IMAGE_FORMAT=png` restores lossless.
+
+**Under WSL this needs `networkingMode=mirrored`**, because the engine is a Windows
+process and without it a Windows-side `127.0.0.1` listener is not reachable from
+Linux. Put this in `%UserProfile%\.wslconfig` and run `wsl --shutdown`:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Without it nothing breaks — the startup banner says why the engine is off and
+pictures take the slow path.
+
+#### The picture studio (owner only)
+
+`sd-server` has a full web UI compiled into it — every sampler, scheduler, CFG and
+img2img knob the binary supports. PlumiChat serves it at **`/sdui`** behind the same
+login, owner-only, and there is a *Picture studio* row in the drawer to open it. It
+is an upstream page, so: it is desktop-shaped, and pictures made there come back as
+bytes in the browser — they do **not** land in an account's gallery or the download
+tray. The Pictures panel is the everyday door; this is the knobs-and-dials one.
+
+Nothing serves it unless `sd-server` is present and `PLUMI_IMAGE_ENGINE` is not
+`cli`; `GET /api/capabilities` reports `imageStudio` either way, with a reason.
 
 ### Long-term memory (optional)
 

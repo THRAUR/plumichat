@@ -83,6 +83,41 @@ shorthand (it would reset the `background-image` the photo is delivered as).
 fires the event open boards listen to. A direct `update()` persists correctly and is
 invisible on screen.
 
+**`options.mcpServers` in `server/claude.js` is MERGED, never assigned.** Long-term
+memory and image generation are independent per-turn SDK servers and either may be
+absent; a bare `options.mcpServers = x` silently costs an account with both one of
+its two tools. Each in-process tool also needs its `mcp__<server>__<tool>` name in
+`SAFE_TOOLS`, or it raises an approval card on every single call.
+
+**An SDK MCP tool runs in the server process, OUTSIDE bubblewrap.** So a tool that
+touches the disk is itself the confinement, not a thing the sandbox protects.
+`server/memory.js` and `server/imagegen.js` both follow the one rule that makes that
+safe: the container tag and the output folder are derived from the account that
+started the turn, and no tool argument, request field or prompt may name either.
+
+**The image engine in `server/imagegen.js` is probed, never assumed.** It keeps
+`sd-server` resident so a picture costs 17s instead of 45 — but every path stays
+alive without it: a box where the engine does not answer (no WSL `mirrored`
+networking, a taken port, a CLI-only release) logs the reason once and makes every
+picture with `sd-cli`, one model load at a time. Three things there are load-bearing
+and were each a bug first:
+
+- **The free-VRAM floor guards a model LOAD, so it belongs in the two places that
+  perform one** — spawning the engine, and a CLI run. Asked once per picture it
+  refuses every picture after the first, because a warm engine *is* the thing using
+  the card; asked before `ensureEngine()` it also refuses an engine already loaded
+  and waiting to be adopted.
+- **`SIGTERM` has to reap the child.** It is what a process manager sends, and its
+  default action never runs an `exit` listener — so every restart left 4.4 GB of the
+  card held by an orphan with nothing alive to time it out.
+- **A generous abort budget on the engine's own HTTP calls.** The enqueue POST
+  usually answers in milliseconds, but the first one after a long idle can take
+  tens of seconds while the OS pages the weights back in; a short ceiling turns
+  that into a dead engine and the 45s fall-back this whole path exists to avoid.
+
+`/sdui` proxies the WebUI compiled into `sd-server` and is **owner-only** — it is
+another door onto the same card, and it is not member-confined.
+
 **Never weaken member confinement.** `/api/chat` clamps members to `default`
 permission mode server-side because `acceptEdits`/`bypassPermissions` skip
 `canUseTool`, which *is* the confinement. Both layers are fail-closed and must stay

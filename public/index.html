@@ -237,6 +237,11 @@
             <span class="nav-label">Notepad</span>
             <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
+          <button class="drawer-nav" id="imagesNav" type="button" aria-label="Make a picture on this machine">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="9.5" r="1.8"></circle><path d="M21 16l-5-5-5.5 5.5L8 14l-5 5"></path></svg></span>
+            <span class="nav-label">Pictures</span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
           <button class="drawer-nav" id="gridNav" type="button">
             <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg></span>
             <span class="nav-label">Split view</span>
@@ -291,6 +296,14 @@
             <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11"></path><polyline points="7.5 9.5 12 14 16.5 9.5"></polyline><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg></span>
             <span class="nav-label">Deploy</span>
             <span class="nav-tag" id="deployTag" hidden></span>
+            <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <!-- The generator's own WebUI, proxied through /sdui behind requireOwner.
+               Every knob the binary has, on a page this repo does not maintain —
+               so it opens in a tab of its own rather than pretending to be a panel. -->
+          <button class="drawer-nav" id="studioNav" type="button" hidden aria-label="Open the picture studio, the generator's own controls">
+            <span class="nav-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l5-1 9.5-9.5a2.1 2.1 0 0 0-3-3L6 16l-2 4z"></path><line x1="14.5" y1="6.5" x2="17.5" y2="9.5"></line></svg></span>
+            <span class="nav-label">Picture studio</span>
             <svg class="nav-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
           <button class="drawer-nav" id="restartServerNav" type="button" hidden aria-label="Restart the PlumiChat server">
@@ -467,6 +480,67 @@
         <div class="np-drop-inner">
           <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><polyline points="7 10 12 15 17 10"></polyline><path d="M5 20h14"></path></svg>
           <span>Drop files to add them</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Pictures: the everyday door to the local image generator. Phone-first, and
+         open to members — the server derives the folder from the account, so there
+         is nothing here for a path to be typed into. The expert knobs live behind
+         "More settings" because the prompt is what actually decides the picture. -->
+    <div class="img-overlay" id="imgOverlay"></div>
+    <aside class="img-modal" id="imgModal" role="dialog" aria-modal="true" aria-label="Pictures" aria-hidden="true">
+      <div class="img-titlebar">
+        <span class="img-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="9.5" r="1.8"></circle><path d="M21 16l-5-5-5.5 5.5L8 14l-5 5"></path></svg>
+          <span>Pictures</span>
+        </span>
+        <span class="img-engine" id="imgEngine" data-state="cold" title="Whether the model is loaded">Cold</span>
+        <button class="img-x" id="imgClose" type="button" aria-label="Close" title="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div class="img-body" id="imgBody">
+        <div class="img-stage" id="imgStage" aria-live="polite"></div>
+
+        <div class="img-compose">
+          <textarea id="imgPrompt" class="img-input" rows="3" placeholder="Describe the picture — what it shows, where, the light, the mood" aria-label="Describe the picture" autocomplete="off"></textarea>
+          <div class="img-shapes" id="imgShapes" role="group" aria-label="Shape">
+            <button class="img-shape is-on" type="button" data-shape="square">Square</button>
+            <button class="img-shape" type="button" data-shape="portrait">Tall</button>
+            <button class="img-shape" type="button" data-shape="landscape">Wide</button>
+          </div>
+          <button class="img-go" id="imgGo" type="button" disabled>Make picture</button>
+        </div>
+
+        <details class="img-more" id="imgMore">
+          <summary>More settings</summary>
+          <div class="img-fields">
+            <label class="img-field" id="imgModelRow" hidden>
+              <span>Model</span>
+              <select id="imgModel"></select>
+            </label>
+            <label class="img-field">
+              <span>Keep out</span>
+              <input type="text" id="imgNegative" placeholder="blurry, text, watermark" autocomplete="off" />
+            </label>
+            <label class="img-field">
+              <span>Seed</span>
+              <input type="text" id="imgSeed" inputmode="numeric" placeholder="random each time" autocomplete="off" />
+            </label>
+            <label class="img-field">
+              <span>Detail steps</span>
+              <input type="range" id="imgSteps" min="4" max="20" step="1" />
+              <output id="imgStepsOut"></output>
+            </label>
+            <p class="img-note">More steps is slower and rarely better on a turbo model. Reuse a seed to change one thing and keep the rest.</p>
+          </div>
+        </details>
+
+        <div class="img-recent" id="imgRecent" hidden>
+          <h3 class="pl-eyebrow">Earlier</h3>
+          <div class="img-strip" id="imgStrip"></div>
         </div>
       </div>
     </aside>
@@ -743,6 +817,7 @@
   <link rel="modulepreload" href="/js/panels/commands.js">
   <link rel="modulepreload" href="/js/panels/deliverables.js">
   <link rel="modulepreload" href="/js/panels/engine.js">
+  <link rel="modulepreload" href="/js/panels/images.js">
   <link rel="modulepreload" href="/js/panels/machine.js">
   <link rel="modulepreload" href="/js/panels/notepad.js">
   <link rel="modulepreload" href="/js/panels/notify.js">

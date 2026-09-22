@@ -8,7 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { PLUMI_SYSTEM_PROMPT } from './system-prompt.js';
+import { PLUMI_SYSTEM_PROMPT, PLUMI_IMAGE_PROMPT } from './system-prompt.js';
 import { WORKSPACES_ROOT } from './sandbox.js';
 import { sandboxKind, resetTempEnv } from './platform.js';
 import { skillIds } from './skills.js';
@@ -146,6 +146,13 @@ const SAFE_TOOLS = new Set([
   // is captured into the same container anyway.
   'mcp__plumichat-memory__recall',
   'mcp__plumichat-memory__remember',
+  // Local image generation (server/imagegen.js). It has a side effect — a file on
+  // disk — and is allow-listed anyway, because the model chooses the picture and
+  // never the path: the folder is derived from the ACCOUNT that started the turn,
+  // one image per call, jobs serialised. That is the same footing as a member
+  // writing inside their own home, and a card on every picture would be friction
+  // that protects nothing.
+  'mcp__plumichat-image__generate_image',
 ]);
 
 // Turn the structured answer the browser sent back into a short natural-language
@@ -397,7 +404,7 @@ async function has1mVariant(id) {
 //   { type: 'thinkingTokens', estimated }                           — throttled thinking-token estimate
 export async function runPrompt({
   prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
-  onEvent, askUser, allowAlways, abortController, canUseTool, sandbox, memory, compactAt,
+  onEvent, askUser, allowAlways, abortController, canUseTool, sandbox, memory, imagegen, compactAt,
 }) {
   // Capture the CLI subprocess's stderr. The SDK collapses a non-zero exit into a
   // generic "exited with code N" and discards the child's stderr — which is where
@@ -422,7 +429,10 @@ export async function runPrompt({
     // (PDF/Word/PowerPoint/Excel) and shapes deliverables accordingly. The append
     // form keeps every default Claude Code capability intact. See
     // server/system-prompt.js — the single place to document new features.
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: PLUMI_SYSTEM_PROMPT },
+    // The image paragraph rides along only when this turn actually has the tool:
+    // a model told it can draw, on a box with no generator, promises pictures that
+    // never arrive.
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: PLUMI_SYSTEM_PROMPT + (imagegen ? PLUMI_IMAGE_PROMPT : '') },
     // The caller's chosen approval mode (default unless a trusted caller asked for
     // acceptEdits / bypassPermissions). In bypass/acceptEdits the SDK skips
     // canUseTool for the auto-approved tools, so the human simply isn't prompted.
@@ -493,10 +503,13 @@ export async function runPrompt({
   // bound to that account's container. `mcpServers` ADDS to the servers the
   // settings files configure; it does not replace them (verified: the claude.ai
   // connectors were still listed next to it).
-  if (memory) {
-    if (memory.hooks) options.hooks = memory.hooks;
-    if (memory.mcpServers) options.mcpServers = memory.mcpServers;
-  }
+  if (memory && memory.hooks) options.hooks = memory.hooks;
+  // MERGED, not assigned. Memory and image generation are independent per-turn
+  // servers and either may be absent, so whichever is written second must not
+  // erase the other — a bare `options.mcpServers = x` here silently costs an
+  // account with both one of its two tools.
+  const sdkServers = { ...(memory?.mcpServers || null), ...(imagegen?.mcpServers || null) };
+  if (Object.keys(sdkServers).length) options.mcpServers = sdkServers;
   // 1M token context window. On the 5.x models this is selected by a '[1m]' SUFFIX
   // on the model id ('claude-opus-5' -> 'claude-opus-5[1m]') — exactly how the CLI's
   // own picker exposes it. The old `betas: ['context-1m-…']` header only ever applied

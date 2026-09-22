@@ -12,6 +12,10 @@ export function setupOwnerRows(p) {
   var eng = $("engineNav"), dep = $("deployNav"), plug = $("pluginsNav"), ops = $("opsNav");
   if (eng) eng.hidden = !p.isOwner;
   if (dep) dep.hidden = !p.isOwner;
+  // The picture studio proxies the generator's own page, which has no login of its
+  // own — /sdui is owner-only server-side and the row follows it.
+  var studio = $("studioNav");
+  if (studio) studio.hidden = !p.isOwner;
   // Operations was visible to everyone while every /api/ops/* route is owner-only,
   // so a member could open a board that could not load a single thing — one of the
   // "members see admin-only controls that 403" papercuts in the audit.

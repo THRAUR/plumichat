@@ -1,0 +1,54 @@
+{
+  "_README": [
+    "Model presets for local image generation (server/imagegen.js).",
+    "Copy this to presets.json INSIDE the folder PLUMI_IMAGE_DIR points at, then restart.",
+    "You only need it to add or change a model — with no presets.json the built-in",
+    "Z-Image Turbo preset below is used as-is.",
+    "",
+    "'args' is passed VERBATIM to whichever binary runs — the resident sd-server or",
+    "the one-shot sd-cli — before the flags the server owns (-p, -n, -W, -H, --steps,",
+    "--cfg-scale, -s, -o). That is deliberate: the flag naming the text encoder differs",
+    "by model family (--llm for the Qwen-family encoders, --t5xxl and --clip_l for the",
+    "Stable Diffusion lineage), so keeping it opaque is exactly what lets a second",
+    "model be added without touching any code.",
+    "",
+    "Speed lives here too, not in the code. On one 8 GB card this preset draws a",
+    "1216x832 picture in 17s on a loaded engine; swapping --diffusion-fa for",
+    "--sage-attn and dropping --vae-tiling measured 15s with no visible difference.",
+    "It is not the default because both depend on the build and the card, and a flag",
+    "the binary does not recognise costs you the model rather than two seconds.",
+    "",
+    "Relative paths resolve inside PLUMI_IMAGE_DIR and may not escape it.",
+    "'requires' is what the capability check looks for: a preset with a missing file",
+    "is dropped with a reason at startup rather than failing at the moment someone",
+    "asks for a picture.",
+    "'sizes' must be positive multiples of 16. The server picks one from the shape",
+    "the model asked for; the model never sends pixel dimensions."
+  ],
+  "default": "z-image-turbo",
+  "models": {
+    "z-image-turbo": {
+      "label": "Z-Image Turbo",
+      "hint": "Fast (8 steps). Good for most illustrations and photographs.",
+      "args": [
+        "--diffusion-model", "models/z_image_turbo-Q4_K.gguf",
+        "--llm", "models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "--vae", "models/ae.safetensors",
+        "--diffusion-fa",
+        "--vae-tiling"
+      ],
+      "steps": 8,
+      "cfgScale": 1.0,
+      "sizes": {
+        "square": [1024, 1024],
+        "portrait": [832, 1216],
+        "landscape": [1216, 832]
+      },
+      "requires": [
+        "models/z_image_turbo-Q4_K.gguf",
+        "models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "models/ae.safetensors"
+      ]
+    }
+  }
+}
