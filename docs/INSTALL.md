@@ -288,6 +288,7 @@ summary.
 | `PLUMI_IMAGE_BOOT_MS` | How long to wait for the engine to finish loading before giving up on it (default 240000). |
 | `PLUMI_IMAGE_FORMAT` | `webp` (default), `png` or `jpeg`. |
 | `PLUMI_IMAGE_QUALITY` | Compression quality, 50–100 (default 92). Ignored for PNG. |
+| `PLUMI_GPU_LEASE` | The file another program writes to borrow the whole card, e.g. for a Blender render (default `~/.cache/plumi/gpu-lease.json`). While it is live, pictures pause and the engine unloads. |
 
 ### Making pictures locally (optional)
 

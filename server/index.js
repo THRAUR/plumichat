@@ -30,7 +30,7 @@ import { exportAnswer } from './export.js';
 import { listModels } from './models.js';
 import { listSites, SITE_GROUPS } from './sites.js';
 import { machineSnapshot } from './machine.js';
-import { imagePresets, startImageJob, readImageJob, imageGallery, ensureEngine, engineState } from './imagegen.js';
+import { imagePresets, startImageJob, readImageJob, imageGallery, ensureEngine, engineState, gpuLease, leaseMessage } from './imagegen.js';
 import { appById, appLoginContext, appForOrigin } from './apps.js';
 import { changePassword, setEnvVar } from './credentials.js';
 import { getWorkspace, setWorkspace } from './settings.js';
@@ -134,6 +134,8 @@ async function sdStudioProxy(req, res) {
   let eng = null;
   try { eng = await ensureEngine(null); } catch { eng = null; }
   if (!eng) {
+    const lease = gpuLease();
+    if (lease) return res.status(503).type('text/plain').send(leaseMessage(lease));
     const why = engineState().fault || 'the resident engine is not configured on this machine.';
     return res.status(503).type('text/plain').send(`The picture studio needs the resident engine. ${why}`);
   }

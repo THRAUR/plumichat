@@ -114,6 +114,13 @@ and were each a bug first:
   usually answers in milliseconds, but the first one after a long idle can take
   tens of seconds while the OS pages the weights back in; a short ceiling turns
   that into a dead engine and the 45s fall-back this whole path exists to avoid.
+- **The card can be lent out.** A process that needs the whole GPU (a Blender
+  render, say) writes `~/.cache/plumi/gpu-lease.json` (or `PLUMI_GPU_LEASE`) and
+  keeps touching it. While it is live, no picture starts (tool, panel or studio),
+  the engine is stopped once the picture on the card finishes, and `<lease>.ack`
+  tells the holder the card is clear. A file and not a route: the holder has no
+  owner session, and loopback proves nothing here. It goes stale on its own 90s
+  after the holder stops touching it.
 
 `/sdui` proxies the WebUI compiled into `sd-server` and is **owner-only** — it is
 another door onto the same card, and it is not member-confined.

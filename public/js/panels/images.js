@@ -94,6 +94,14 @@ function applyModelDefaults() {
 
 function paintEngine(e) {
   if (!e) return;
+  // Lent to a render (server/imagegen.js, the lease): not broken, not loading —
+  // say which, because "Cold" would promise a picture in a minute.
+  if (e.lease) {
+    imgEngine.dataset.state = "cold";
+    imgEngine.textContent = "Paused";
+    imgEngine.title = "The graphics card is busy with " + (e.lease.what || "another program") + ". Pictures come back when it finishes.";
+    return;
+  }
   var warm = !!e.warm;
   imgEngine.dataset.state = warm ? "warm" : "cold";
   imgEngine.textContent = warm ? "Ready" : "Cold";

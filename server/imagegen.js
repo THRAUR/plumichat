@@ -39,6 +39,7 @@
 // and nothing else, and says why at startup (capabilities.js).
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile, execFileSync, spawn } from 'node:child_process';
@@ -167,6 +168,7 @@ let status = null;
 export function imagegenStatus() {
   if (status) return status;
   status = probe();
+  if (status.ok) watchLease();
   return status;
 }
 
@@ -254,8 +256,12 @@ function checkPreset(root, m) {
 let chain = Promise.resolve();
 let waiting = 0;
 const MAX_WAITING = 2;
+// A picture is on the card right now. What the lease watcher waits out before it
+// hands the card over: a render never pulls the rug from under a picture half made.
+let onCard = 0;
 
 async function withGpu(fn) {
+  assertNoLease();
   if (waiting >= MAX_WAITING) throw new Error('busy');
   waiting += 1;
   const prev = chain;
@@ -265,7 +271,11 @@ async function withGpu(fn) {
     let timer;
     const gate = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('queue')), QUEUE_WAIT_MS); });
     try { await Promise.race([prev, gate]); } finally { clearTimeout(timer); }
-    return await fn();
+    // Again, after the wait: a picture queued behind another may find the card was
+    // lent out while it stood in line.
+    assertNoLease();
+    onCard += 1;
+    try { return await fn(); } finally { onCard -= 1; }
   } finally {
     waiting -= 1;
     // Resolved WITH `prev`, not bare. On the normal path prev has already settled,
@@ -305,6 +315,78 @@ function freeVramMb() {
 function assertVramForLoad() {
   const free = freeVramMb();
   if (free !== null && free < MIN_VRAM_MB) throw new Error(`vram:${free}`);
+}
+
+/* -------------------------------- the lease ------------------------------- */
+
+// Another program can borrow the whole card. A Blender render writes this file
+// before it starts and deletes it when it ends; while it is there no picture
+// starts, and the resident engine hands back the ~4.4 GB it holds — on an 8 GB card
+// a render sharing space with weights it is not using is slower, or does not fit.
+//
+// A file rather than an HTTP call, because a render runs in a shell with no owner
+// session, and this server cannot trust a caller for being local: tailscale serve
+// delivers every outside request from loopback too. Members cannot forge one — their
+// sandbox writes only inside their own home — so a lease is always the owner's.
+//
+// Live while its holder is: the pid must exist AND the file must have been touched
+// within LEASE_STALE_MS. The holder touches it every few seconds, so a holder that
+// was SIGKILLed stops touching it and pictures come back on their own a minute and a
+// half later, rather than never.
+const LEASE_FILE = process.env.PLUMI_GPU_LEASE || path.join(os.homedir(), '.cache', 'plumi', 'gpu-lease.json');
+// Written back when the card is clear: no picture on it, our engine stopped. The
+// holder waits for this before it loads anything, because the one thing it cannot
+// see from outside is a picture half made.
+const LEASE_ACK = `${LEASE_FILE}.ack`;
+const LEASE_STALE_MS = 90000;
+
+export function gpuLease() {
+  let st;
+  try { st = fs.statSync(LEASE_FILE); } catch { return null; }
+  if (Date.now() - st.mtimeMs > LEASE_STALE_MS) return null;
+  // Unreadable counts as held, not as free. The holder writes atomically, so this is
+  // a stray file at worst, and the staleness check above retires it on its own.
+  let rec = {};
+  try { rec = JSON.parse(fs.readFileSync(LEASE_FILE, 'utf8')) || {}; } catch { rec = {}; }
+  const pid = Number(rec.pid);
+  if (Number.isInteger(pid) && pid > 0) {
+    try { process.kill(pid, 0); } catch (err) { if (err.code === 'ESRCH') return null; }
+  }
+  return {
+    id: String(rec.id || ''),
+    what: String(rec.what || 'another program').replace(/[\r\n]/g, ' ').slice(0, 80),
+    since: Number(rec.since) || st.mtimeMs,
+  };
+}
+
+function assertNoLease() {
+  const lease = gpuLease();
+  if (!lease) return;
+  const err = new Error('lease');
+  err.lease = lease;
+  throw err;
+}
+
+// Every two seconds, because a render must not wait out the fifteen-minute idle
+// timer to get the card back. While no lease exists this costs one failed stat.
+let ackedId = null;
+let stopping = null;
+function watchLease() {
+  const t = setInterval(() => {
+    const lease = gpuLease();
+    if (!lease) { ackedId = null; return; }
+    if (onCard || stopping) return;
+    // Acked on a later tick, once the engine has actually exited: the holder reads
+    // the ack as "load now", and the card is not clear while the process lingers.
+    if (engine && !engine.gone) { stopping = stopEngine().finally(() => { stopping = null; }); return; }
+    if (ackedId === lease.id) return;
+    try {
+      fs.writeFileSync(LEASE_ACK, JSON.stringify({ id: lease.id, at: Date.now() }));
+      ackedId = lease.id;
+      console.log(`[image] pictures paused: the card is lent to ${lease.what}`);
+    } catch { /* the holder times out and checks the card itself */ }
+  }, 2000);
+  t.unref?.();
 }
 
 
@@ -459,6 +541,9 @@ async function bootEngine(st, preset) {
 export async function ensureEngine(preset) {
   const st = imagegenStatus();
   if (!st.ok || ENGINE_MODE === 'cli' || !st.src.server) return null;
+  // The studio page reaches here without passing withGpu(), so the lease is checked
+  // again: loading weights onto a lent card is exactly what it forbids.
+  if (gpuLease()) return null;
   const want = preset || st.presets[0];
 
   while (bootLock) { try { await bootLock; } catch { /* the fault is recorded */ } }
@@ -496,7 +581,15 @@ export function engineState() {
     port: ENGINE_PORT,
     fault: engineFault,
     mode: ENGINE_MODE,
+    lease: gpuLease(),
   };
+}
+
+// The sentence a phone shows while the card is lent out.
+export function leaseMessage(lease) {
+  const mins = Math.max(0, Math.round((Date.now() - (lease?.since || Date.now())) / 60000));
+  const ago = mins < 1 ? 'just now' : mins === 1 ? '1 minute ago' : `${mins} minutes ago`;
+  return `Pictures are paused: the graphics card is busy with ${lease?.what || 'another program'} (started ${ago}). They come back on their own when it finishes.`;
 }
 
 // Best effort only: a process killed outright cannot run this, which is exactly why
@@ -811,6 +904,7 @@ function imageServer(outDir) {
 // reads this out to someone on a phone.
 function explain(err) {
   const m = String(err?.message || err);
+  if (m === 'lease') return leaseMessage(err.lease);
   if (m === 'busy') return 'This machine has one graphics card and it already has two pictures queued. Try again in a minute.';
   if (m === 'queue') return 'Another picture was still being generated after several minutes, so this one was not started. Try again shortly.';
   if (m === 'timeout') return 'The picture took too long and was stopped. A simpler prompt or a smaller shape usually works.';
@@ -887,6 +981,10 @@ export function startImageJob(user, input) {
 
   const prompt = String(input?.prompt || '').trim().slice(0, 1500);
   if (prompt.length < 3) throw new Error('Describe the picture you want in a few words.');
+  // Refused up front rather than as a job that fails a moment later: the panel shows
+  // the reason straight away instead of a progress bar that never moves.
+  const lease = gpuLease();
+  if (lease) throw new Error(leaseMessage(lease));
 
   const preset = st.presets.find((p) => p.id === input?.model) || st.presets[0];
   const shape = SHAPES.includes(input?.shape) && preset.sizes[input.shape] ? input.shape : 'square';
