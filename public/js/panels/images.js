@@ -1,6 +1,8 @@
 import { apiFetch } from '../api.js';
 import { $, toast, pref } from '../dom.js';
+import { iosifyLink } from '../handoff.js';
 import { closeDrawer } from '../library.js';
+import { openLightbox } from './lightbox.js';
 
 /* ======================= Pictures: make one locally ====================== */
 // The everyday door to the image generator. Deliberately small: a description, a
@@ -143,6 +145,8 @@ function stagePicture(job) {
   var im = document.createElement("img");
   im.alt = job.prompt || "";
   im.src = job.src;
+  // The same viewer a picture in an answer opens: full screen, Share and Copy.
+  im.addEventListener("click", function () { openLightbox(job.src, job.prompt || ""); });
   fig.appendChild(im);
 
   var row = document.createElement("div");
@@ -153,6 +157,8 @@ function stagePicture(job) {
   dl.href = "/api/download?path=" + encodeURIComponent(job.path);
   dl.setAttribute("download", "");
   dl.textContent = "Download";
+  // The home-screen app on iOS ignores download: without this the tap did nothing.
+  iosifyLink(dl, (job.path || "").split("/").pop() || "picture");
   row.appendChild(dl);
 
   // The one control worth putting in front of someone: same seed, changed words.

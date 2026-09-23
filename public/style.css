@@ -1531,6 +1531,10 @@
 .md th { background: var(--surface-2); font-weight: 600; }
 .md tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
 .md img { max-width: 100%; border-radius: var(--r-md); }
+/* A tap opens the picture viewer (js/panels/lightbox.js). The callout is spelled
+   out so nothing inherited can switch the browser's own long-press menu off, and
+   an image is not text: selecting it only raised the Reply pill over it. */
+.md img { cursor: zoom-in; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none; }
 
 /* ---------- Model + effort menu ---------- */
 .model-menu { min-width: 250px; max-height: min(70vh, 520px); overflow-y: auto; scrollbar-width: thin; }
@@ -2648,7 +2652,7 @@ body.embed .sidebar-resizer { display: none !important; }
 .img-cap { font-size: 12px; color: var(--muted); text-align: center; }
 
 .img-shot { margin: 0; display: flex; flex-direction: column; gap: 9px; width: 100%; }
-.img-shot img { width: 100%; height: auto; display: block; border-radius: var(--r-md); border: 1px solid var(--line); }
+.img-shot img { width: 100%; height: auto; display: block; border-radius: var(--r-md); border: 1px solid var(--line); cursor: zoom-in; }
 .img-shot-actions { display: flex; gap: 8px; }
 .img-btn {
   flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center;
@@ -2659,6 +2663,56 @@ body.embed .sidebar-resizer { display: none !important; }
   transition: background 0.14s ease, border-color 0.14s ease;
 }
 .img-btn:hover { background: var(--surface-2); border-color: var(--accent-line); }
+
+/* ===== Picture viewer: a tap on a picture (js/panels/lightbox.js) ===== */
+/* Full screen and dark in both themes — a picture is judged against black, not
+   paper. 71 sits over the Pictures panel it can be opened from (61) and under the
+   toasts (72), so "Picture copied" shows on top of it. */
+.lb {
+  position: fixed; inset: 0; z-index: 71;
+  display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  background: rgba(4, 5, 7, 0.96);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.18s ease;
+  overscroll-behavior: contain;
+}
+.lb.open { opacity: 1; pointer-events: auto; }
+.lb:focus { outline: none; }
+.lb-x {
+  position: absolute; z-index: 1;
+  top: calc(env(safe-area-inset-top, 0px) + 10px); right: calc(env(safe-area-inset-right, 0px) + 10px);
+  display: grid; place-items: center; width: 44px; height: 44px;
+  border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12); color: #fff;
+  cursor: pointer;
+}
+.lb-x:hover { background: rgba(255, 255, 255, 0.2); }
+.lb-stage {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 64px 12px 12px;
+}
+.lb-img {
+  max-width: 100%; max-height: 100%; object-fit: contain; display: block;
+  border-radius: var(--r-md);
+  -webkit-touch-callout: default; -webkit-user-select: none; user-select: none;
+}
+.lb-actions {
+  flex: none; display: flex; justify-content: center; gap: 10px;
+  padding: 4px 14px 16px;
+}
+.lb-btn {
+  flex: 0 1 170px; height: 44px; padding: 0 16px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-win);
+  background: var(--surface); color: var(--text);
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  touch-action: manipulation;
+}
+.lb-btn:hover { background: var(--surface-2); border-color: var(--accent-line); }
+.lb-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.lb-btn[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .lb { transition: none; } }
 
 .img-compose { display: flex; flex-direction: column; gap: 10px; }
 .img-input {

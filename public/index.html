@@ -598,6 +598,23 @@
         <button type="button" id="termPaste" aria-label="Paste into the terminal" class="wide">paste</button>
       </div>
     </aside>
+
+    <!-- Picture viewer: a tap on a picture in an answer. A picture in a bubble was
+         a bare <img>, and the only thing you could do with it was the Download box
+         under the answer — a long-press on it is the browser's to offer or not, and
+         in the home-screen app on a phone that is not something to rely on. The
+         buttons are shown by js/panels/lightbox.js for what this browser can do. -->
+    <div class="lb" id="lightbox" role="dialog" aria-modal="true" aria-label="Picture" aria-hidden="true" tabindex="-1">
+      <button class="lb-x" id="lbClose" type="button" aria-label="Close" title="Close">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+      <div class="lb-stage" id="lbStage"><img class="lb-img" id="lbImg" alt="" /></div>
+      <div class="lb-actions">
+        <button class="lb-btn" id="lbShare" type="button" hidden>Share</button>
+        <button class="lb-btn" id="lbCopy" type="button" hidden>Copy</button>
+        <button class="lb-btn" id="lbSave" type="button">Download</button>
+      </div>
+    </div>
   </div>
 
   <!-- Viewport + keyboard shell. Inline and page-local on purpose: theme.js is
@@ -818,6 +835,7 @@
   <link rel="modulepreload" href="/js/panels/deliverables.js">
   <link rel="modulepreload" href="/js/panels/engine.js">
   <link rel="modulepreload" href="/js/panels/images.js">
+  <link rel="modulepreload" href="/js/panels/lightbox.js">
   <link rel="modulepreload" href="/js/panels/machine.js">
   <link rel="modulepreload" href="/js/panels/notepad.js">
   <link rel="modulepreload" href="/js/panels/notify.js">
@@ -830,6 +848,6 @@
   <link rel="modulepreload" href="/js/panels/terminal.js">
   <link rel="modulepreload" href="/js/panels/theme-toggle.js">
   <link rel="modulepreload" href="/js/panels/voice.js">
-  <script type="module" src="/app.js?v=20260904b"></script>
+  <script type="module" src="/app.js?v=20260923a"></script>
 </body>
 </html>
