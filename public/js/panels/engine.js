@@ -131,14 +131,23 @@ export function loadDeployStatus() {
     .then(function (d) { deployStatusCache = d; return d; })
     .catch(function () { return null; });
 }
+// One word per situation, and amber only for the ones that want a human. "Behind"
+// used to cover all four — including "the live server is AHEAD of the dev copy",
+// which is a notification about nothing, and "never pushed", where the only button
+// on the sheet cannot help. Falls back to the old two-way wording on a server that
+// predates `state`.
+export var DEPLOY_LABEL = {
+  "in-sync": "In sync", "live-ahead": "Live ahead",
+  "behind": "Behind", "unpushed": "Push first", "diverged": "Diverged"
+};
 export function refreshDeployTag() {
   var tag = $("deployTag");
   loadDeployStatus().then(function (d) {
     if (!tag) return;
-    if (!d) { tag.hidden = true; return; }
+    if (!d || d.state === "unknown") { tag.hidden = true; return; }
     tag.hidden = false;
     tag.className = "nav-tag" + (d.inSync ? "" : " due");
-    tag.textContent = d.inSync ? "In sync" : "Behind";
+    tag.textContent = DEPLOY_LABEL[d.state] || (d.inSync ? "In sync" : "Behind");
   });
 }
 /* ---------- Operations badge ----------
@@ -179,7 +188,7 @@ export function deploySheetBody(body, d) {
     return;
   }
   var live = d.live || {}, dev = d.dev || {};
-  factCard(body, "Live server", d.inSync ? "Deployed" : "Behind", [
+  factCard(body, "Live server", DEPLOY_LABEL[d.state] || (d.inSync ? "Deployed" : "Behind"), [
     { label: "Branch", value: live.branch },
     { label: "On commit", value: live.short || shortSha(live.head), changed: !d.inSync },
     { label: "Its upstream", value: shortSha(live.upstream) },
@@ -192,17 +201,19 @@ export function deploySheetBody(body, d) {
     { label: "On commit", value: dev.short || shortSha(dev.head) },
     { label: "Path", value: dev.path }
   ]);
-  if (d.inSync) {
-    sheetNote(body, "The live server is on the same commit as the dev copy — nothing to deploy. Commit and push in dev first, then come back.");
-  } else {
-    sheetNote(body, "Pull fast-forwards the live clone from GitHub, and runs npm ci there only if the lockfile moved and no turn is running. It never commits, never pushes and never restarts anything. A dev commit that hasn't been pushed yet can't be pulled.");
-  }
+  // Lead with WHICH situation this is — the sheet used to show the same paragraph
+  // whenever the two commits differed, so a state a pull cannot fix read exactly
+  // like one it can. Then the standing explanation of what Pull does and does not do.
+  if (d.reason) sheetNote(body, d.reason);
+  sheetNote(body, d.inSync
+    ? "Commit and push in the dev copy first, then come back."
+    : "Pull fast-forwards the live clone from GitHub, and runs npm ci there only if the lockfile moved and no turn is running. It never commits, never pushes and never restarts anything.");
 
   var step2 = document.createElement("div");
   step2.className = "sheet-step";
   step2.textContent = "Step 2 · Restart — only needed for a server change, and only after the pull has landed.";
   var row = sheetActions(body);
-  var pull = sheetButton(row, "Pull into the live clone", "primary", function (b) {
+  var pull = sheetButton(row, "Pull into the live clone", d.pullHelps === false ? "" : "primary", function (b) {
     b.disabled = true; b.textContent = "Pulling…";
     reqJSON("/api/deploy/pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
       .then(function (r) {

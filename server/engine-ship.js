@@ -179,6 +179,16 @@ export async function shipEngineUpdate({ target = 'sdk', version, isBusy } = {})
   setJob({ startedAt: Date.now(), target, version: version || 'latest', steps: [], done: false, ok: null, error: null });
 
   try {
+    // 0 — level the dev repo with origin FIRST. It is the tree this flow pushes
+    //     from, so a stale one makes every later step lie: the commit lands on a
+    //     base GitHub has moved past, the push is rejected, and the live clone
+    //     never sees the new manifest. It has to happen before the canary, not
+    //     after: a fast-forward refuses to run on a dirty tree, and step 1 is
+    //     what makes it dirty.
+    const aligned = await alignDevRepo();
+    if (!aligned.ok) return finish(false, aligned.error);
+    pushStep('align', true, aligned.note);
+
     // 1 — stage, canary, and write the vetted manifest into the dev repo. This is
     //     engine.js's whole existing flow; no reason to reimplement it.
     const applied = await applyUpdate({ target, version, dryRun: false, isBusy });
@@ -201,35 +211,61 @@ export async function shipEngineUpdate({ target = 'sdk', version, isBusy } = {})
       // check below decide.
       pushStep('commit', true, 'manifest already carries this version — nothing new to commit');
     } else {
-      const subject2 = 'Engine: ' + target + ' → ' + (applied.version || version || 'latest');
+      // Name the version, not the word "latest": three identical "Engine: both →
+      // latest" subjects in a row is what made a stuck update unreadable in the
+      // log. applyUpdate reports the resolved version on its verdict.
+      const shipped = (applied.verdict && applied.verdict.sdk && applied.verdict.sdk.to) || version || 'latest';
+      const subject2 = 'Engine: ' + target + ' → ' + shipped;
       const body2 = 'Staged in a scratch clone, canary turn passed, sdk.d.ts option surface unchanged.\nShipped from PlumiChat by one tap.';
       const commit = await sh('git', ['-C', DEV_REPO, 'commit', '-m', subject2, '-m', body2, '--', 'package.json', 'package-lock.json'], { timeout: GIT_MS });
       if (!commit.ok) return finish(false, 'commit blocked (hook or git error): ' + why(commit.err));
       pushStep('commit', true, subject2);
-
-      const push = await sh('git', ['-C', DEV_REPO, 'push', 'origin', 'HEAD'], { timeout: PUSH_MS });
-      if (!push.ok) return finish(false, 'push failed: ' + why(push.err) + ' (the commit is local; push it by hand)');
-      pushStep('push', true, 'pushed to origin');
     }
 
-    // 3 — bring the live clone up to it.
+    // 3 — push whatever is ahead, and NOT only what this run just committed. That
+    //     coupling is the bug this whole block was rewritten for: one run committed
+    //     the bump and failed to push it (origin had moved), and every run after it
+    //     found nothing to commit, skipped the push along with it, pulled nothing,
+    //     and reported a green "already up to date" — while the single commit that
+    //     would have fixed it sat in a tree the phone never shows. A commit nobody
+    //     pushed is indistinguishable from no commit at all, from the live clone.
+    const ahead = await sh('git', ['-C', DEV_REPO, 'rev-list', '--count', '@{u}..HEAD'], { timeout: GIT_MS });
+    const nAhead = Number(ahead.out || 0) || 0;
+    if (nAhead > 0) {
+      const push = await sh('git', ['-C', DEV_REPO, 'push', 'origin', 'HEAD'], { timeout: PUSH_MS });
+      if (!push.ok) return finish(false, 'push failed: ' + why(push.err) + ' (the commit is local; push it by hand)');
+      pushStep('push', true, 'pushed ' + nAhead + ' commit' + (nAhead === 1 ? '' : 's') + ' to origin');
+    } else {
+      pushStep('push', true, 'origin already has the dev commit');
+    }
+
+    // 4 — bring the live clone up to it.
     const pull = await sh('git', ['-C', LIVE_CLONE, 'pull', '--ff-only'], { timeout: PUSH_MS });
     if (!pull.ok) return finish(false, 'live pull failed: ' + pull.err);
     pushStep('pull', true, 'live clone fast-forwarded');
 
-    // 4 — is there actually anything to install? Compare what the live lockfile
+    // 5 — is there actually anything to install? Compare what the live lockfile
     //     pins against what is installed there right now. This is the check that
     //     replaced "did git have something to commit", which said no while the
     //     live clone was genuinely a version behind.
-    const pinned = livePinnedSdk();
+    const pinned = pinnedSdk(LIVE_CLONE);
     const installedNow = liveInstalledSdk();
+    // ...but "nothing to install" is only good news if the live clone actually
+    // RECEIVED the new manifest. If the dev repo pins something newer, the pull
+    // did not bring it, and declaring victory here is how a two-version-behind
+    // server got told it was current. Say which step really failed instead.
+    const devPinned = pinnedSdk(DEV_REPO);
+    if (pinned && devPinned && pinned !== devPinned) {
+      return finish(false, 'the live clone still pins ' + pinned + ' while the dev repo pins ' + devPinned +
+        ' — the new manifest never reached the live clone, so nothing was installed');
+    }
     if (pinned && installedNow && pinned === installedNow) {
       pushStep('install', true, 'already running ' + installedNow + ' — nothing to install');
       return finish(true, null, { note: 'the live server is already running ' + installedNow, upToDate: true });
     }
     pushStep('plan', true, 'live has ' + (installedNow || 'unknown') + ', lockfile pins ' + (pinned || 'unknown'));
 
-    // 5 — the destructive step. Re-check idleness first: staging and the canary
+    // 6 — the destructive step. Re-check idleness first: staging and the canary
     //     took minutes, and a turn started since would be killed by the install.
     if (busy()) return finish(false, 'a chat turn started while the update was staging — nothing was installed; try again when idle');
 
@@ -247,7 +283,7 @@ export async function shipEngineUpdate({ target = 'sdk', version, isBusy } = {})
     }
     pushStep('install', true, 'npm ci completed');
 
-    // 5 — prove the new tree before betting the server on it. Both checks run in a
+    // 7 — prove the new tree before betting the server on it. Both checks run in a
     //     child process so a broken install cannot crash this one.
     const proof = await verifyInstalled();
     if (!proof.ok) {
@@ -256,7 +292,7 @@ export async function shipEngineUpdate({ target = 'sdk', version, isBusy } = {})
     }
     pushStep('verify', true, 'SDK resolves and its CLI answers --version');
 
-    // 6 — arm the rollback, then restart. Order matters: once PM2 replaces this
+    // 8 — arm the rollback, then restart. Order matters: once PM2 replaces this
     //     process nothing here runs again, so the watchdog must already be alive.
     const pid = armWatchdog(flagFile);
     pushStep('watchdog', true, 'rollback armed (pid ' + pid + ')');
@@ -282,9 +318,9 @@ export async function shipEngineUpdate({ target = 'sdk', version, isBusy } = {})
 // was already committed leaves nothing to commit while the live tree is still
 // running the old version. That is exactly how a real update reported "nothing
 // to ship" while the live clone sat a version behind.
-function livePinnedSdk() {
+function pinnedSdk(dir) {
   try {
-    const lock = JSON.parse(fs.readFileSync(path.join(LIVE_CLONE, 'package-lock.json'), 'utf8'));
+    const lock = JSON.parse(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf8'));
     const key = Object.keys(lock.packages || {}).find((k) => k.endsWith('@anthropic-ai/claude-agent-sdk'));
     return key ? (lock.packages[key].version || null) : null;
   } catch { return null; }
@@ -294,6 +330,39 @@ function liveInstalledSdk() {
     return JSON.parse(fs.readFileSync(
       path.join(LIVE_CLONE, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')).version || null;
   } catch { return null; }
+}
+
+// Bring the dev repo level with origin before we write into it. Non-destructive by
+// design: a fast-forward only, never a merge or a reset, because this tree belongs
+// to a human and may hold work of theirs. The three outcomes it has to tell apart:
+//
+//   behind  — the normal stale case. Fast-forward and carry on.
+//   ahead   — a commit waiting to go out (usually one of ours from a run whose push
+//             failed). Leave it; the push step below sends it.
+//   both    — genuinely diverged. STOP. Committing onto that base produces a push
+//             origin will reject, and the old code then swallowed the whole update.
+//
+// A dead network is not a reason to refuse: without origin we still know what the
+// local base is, and the push is where it would fail honestly anyway.
+async function alignDevRepo() {
+  const fetched = await sh('git', ['-C', DEV_REPO, 'fetch', 'origin'], { timeout: PUSH_MS });
+  if (!fetched.ok) return { ok: true, note: 'could not reach origin (' + why(fetched.err, 120) + ') — continuing on the local base' };
+
+  const counts = await sh('git', ['-C', DEV_REPO, 'rev-list', '--left-right', '--count', '@{u}...HEAD'], { timeout: GIT_MS });
+  if (!counts.ok) return { ok: true, note: 'dev branch tracks nothing — continuing on the local base' };
+  const [behind, ahead] = String(counts.out || '').split(/\s+/).map((n) => Number(n) || 0);
+
+  if (behind && ahead) {
+    return { ok: false, error: 'the dev repo has diverged from origin (' + ahead + ' local commit' + (ahead === 1 ? '' : 's') +
+      ', ' + behind + ' on origin it has not taken) — rebase or reset it by hand; nothing was changed' };
+  }
+  if (behind) {
+    const ff = await sh('git', ['-C', DEV_REPO, 'merge', '--ff-only', '@{u}'], { timeout: GIT_MS });
+    if (!ff.ok) return { ok: false, error: 'the dev repo could not fast-forward to origin (' + why(ff.err, 200) + ') — nothing was changed' };
+    return { ok: true, note: 'dev repo fast-forwarded ' + behind + ' commit' + (behind === 1 ? '' : 's') + ' to origin' };
+  }
+  if (ahead) return { ok: true, note: ahead + ' local commit' + (ahead === 1 ? '' : 's') + ' waiting to be pushed' };
+  return { ok: true, note: 'dev repo level with origin' };
 }
 
 function restoreModules() {

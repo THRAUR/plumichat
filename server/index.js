@@ -1752,7 +1752,11 @@ async function repoHead(dir) {
 // the restart, and a detached watchdog restores the previous modules if the
 // server does not answer again — see server/engine-ship.js for why that has to
 // live outside this process.
-app.post('/api/engine/ship', requireOwner, async (req, res) => {
+// requireTwoCopyDeploy, not just requireOwner: the ship flow commits and PUSHES
+// from the dev repo before it installs, and its align step now fetches there too.
+// Without a separate live clone there is nothing to ship INTO, and it used to run
+// the whole canary-commit-push walk before refusing at the last step.
+app.post('/api/engine/ship', requireOwner, requireTwoCopyDeploy, async (req, res) => {
   const body = req.body || {};
   const r = await shipEngineUpdate({
     target: body.target || 'sdk',
@@ -1782,14 +1786,46 @@ function requireTwoCopyDeploy(_req, res, next) {
   next();
 }
 
+// Two checkouts on different commits is FOUR different situations, and this route
+// used to report all four as one bit. The badge then said "Behind" when the live
+// server was ahead and there was nothing to do at all, and said the same thing when
+// the dev commit had never been pushed — where the sheet's only button, Pull, could
+// not possibly help. A notification you cannot act on is the one that gets ignored.
+//
+// Decided with plain object lookups and no fetch: whether a clone HAS a commit is
+// itself the answer to "was that ever pushed", and each ancestry test is run in a
+// repo that owns both objects.
+async function deployRelation(live, dev) {
+  if (!live.head || !dev.head) return { state: 'unknown', reason: 'one of the two checkouts could not be read' };
+  if (live.head === dev.head) return { state: 'in-sync', reason: 'the live server is on the dev copy\'s commit — nothing to deploy' };
+
+  const has = (dir, sha) => sh('git', ['-C', dir, 'cat-file', '-e', sha + '^{commit}'], { timeout: GIT_MS });
+  const ancestor = (dir, a, b) => sh('git', ['-C', dir, 'merge-base', '--is-ancestor', a, b], { timeout: GIT_MS });
+  const [liveHasDev, devHasLive] = await Promise.all([has(LIVE_CLONE, dev.head), has(DEV_REPO, live.head)]);
+
+  if (liveHasDev.ok) {
+    if ((await ancestor(LIVE_CLONE, live.head, dev.head)).ok)
+      return { state: 'behind', reason: 'the live server is behind the dev copy — pull to deploy it' };
+    if ((await ancestor(LIVE_CLONE, dev.head, live.head)).ok)
+      return { state: 'live-ahead', reason: 'the live server is ahead of the dev copy — nothing to deploy' };
+    return { state: 'diverged', reason: 'the two copies have diverged — reconcile the dev copy by hand before deploying' };
+  }
+  // The live clone has never seen the dev commit, so GitHub has not either.
+  if (devHasLive.ok && (await ancestor(DEV_REPO, live.head, dev.head)).ok)
+    return { state: 'unpushed', reason: 'the dev commit was never pushed, so a pull cannot bring it — push from the dev copy first' };
+  return { state: 'diverged', reason: 'the dev copy is missing commits the live server already runs — fetch and rebase it before deploying' };
+}
+
 app.get('/api/deploy/status', requireOwner, requireTwoCopyDeploy, async (_req, res) => {
   const [live, dev] = await Promise.all([repoHead(LIVE_CLONE), repoHead(DEV_REPO)]);
+  const rel = await deployRelation(live, dev);
   res.json({
     live, dev, runningFrom: REPO_ROOT,
-    // "Deployed" means the live clone is sitting on the same commit as the dev copy.
-    // (A dev commit that has not been PUSHED yet also reads as "behind" — the pull
-    // then finds nothing, and the sheet says to push first.)
-    inSync: !!(live.head && dev.head && live.head === dev.head),
+    // `state` is the useful field; `inSync` stays for older clients, and now counts
+    // "the live server is ahead" as in sync too — it is, for anything deployable.
+    state: rel.state, reason: rel.reason,
+    inSync: rel.state === 'in-sync' || rel.state === 'live-ahead',
+    pullHelps: rel.state === 'behind',
     behindUpstream: !!(live.head && live.upstream && live.head !== live.upstream),
   });
 });
