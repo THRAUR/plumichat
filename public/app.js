@@ -19,6 +19,7 @@ import { initNotify } from './js/panels/notify.js';
 import { initPermPicker } from './js/panels/perm.js';
 import { initPlugins } from './js/panels/plugins.js';
 import { initProfile } from './js/profile.js';
+import { initPlumi } from './js/plumi.js';
 import { initProjectPicker } from './js/projects.js';
 import { initPushRow } from './js/panels/push.js';
 import { initQuote } from './js/quote.js';
@@ -61,6 +62,8 @@ import { initVoice } from './js/panels/voice.js';
    these is the one edit here that can change behaviour without changing any code.
    Adding a panel means adding its init() at the position its wiring belongs. */
 initEmbedClasses();
+// Before anything can call setStatus(): it puts Plumi into the status pill.
+initPlumi();
 initTasks();
 initProjectPicker();
 initModelPicker();

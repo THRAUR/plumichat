@@ -2642,7 +2642,11 @@ body.embed .sidebar-resizer { display: none !important; }
   -webkit-overflow-scrolling: touch;
 }
 
-.img-stage { min-height: 96px; display: flex; align-items: center; justify-content: center; }
+/* flex: none — .img-body is a scrolling flex column, and with a long "Earlier"
+   grid below it the stage was shrunk to its 96px minimum while its content stayed
+   full size: a finished picture (405px on a phone) was drawn over the prompt box
+   and the buttons under it. */
+.img-stage { flex: none; min-height: 96px; display: flex; align-items: center; justify-content: center; }
 .img-msg { color: var(--muted); font-size: 13.5px; text-align: center; line-height: 1.55; margin: 0; padding: 22px 14px; }
 .img-msg.is-err { color: var(--error); }
 
@@ -5011,3 +5015,31 @@ body {
 .mc-disk .mc-bar { flex: 0 0 100%; height: 4px; margin-top: 3px; }
 .mc-foot { padding-top: 6px; font-size: 10px; color: var(--faint); }
 @media (prefers-reduced-motion: reduce) { .mc-bar i { transition: none; } }
+
+/* ---------- 20. Plumi ----------
+   PlumiBot's bird, live (js/plumi.js, drawn by /vendor/plumi). He is pixel art,
+   so he only ever appears at a whole-number scale — 1x in the status pill, 2x in
+   the Images panel, 3x (4x on a desktop) in an empty chat — and each box is sized
+   by js/plumi.js to the widest loop it will hold. Nothing here may stretch one:
+   a box at 1.5x is a blurred bird. */
+.sb-plumi, .hello-plumi, .plumi-box { display: block; flex: none; overflow: hidden; line-height: 0; }
+.sb-plumi plumi-animation, .hello-plumi plumi-animation, .plumi-box plumi-animation { display: block; }
+
+/* The pill: Plumi takes the place of the three dots AND of the Done tick (he
+   cheers instead), so the pill is 1 + 42 + 1 = 44px while he is in it, not 34.
+   Only while a turn runs; the pill is hidden the rest of the time. */
+.status-bar.has-plumi { padding-block: 0; padding-left: 4px; }
+.status-bar.has-plumi .sb-ind { display: none; }
+
+/* An empty chat: he waves above "Ready when you are", then idles. clearMessages()
+   puts a fresh one in the list each time; this shows it only while the list is
+   empty, by the same test that draws the words (section 16). order: -1 lifts
+   him above the ::before prompt, which is also a flex item of the list. */
+.hello-plumi { display: none; order: -1; align-self: center; margin-bottom: 6px; }
+.messages:not(:has(.row)):not(:has(.notice)) .hello-plumi { display: block; }
+
+/* A live error: a 1x shrug in the corner of the bubble, clear of the text. */
+.err-plumi { float: right; margin: -4px -6px 0 10px; }
+
+/* The Images panel paints while it waits. */
+.img-plumi { align-self: center; }

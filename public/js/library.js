@@ -475,8 +475,8 @@ export function reflectStream(key) {
   setTurnModelInfo(s.model || "", s.modelSource || "", s.requested || "");
   // A turn parked on background agents keeps saying so when you come back to it.
   var w = waitingState[key];
-  if (w && w.text) setStatus("working", w.text);
-  else setStatus("working", s.model ? friendlyModel(s.model) + " · working…" : "Working…");
+  if (w && w.text) setStatus("working", w.text, "sleep");
+  else setStatus("working", s.model ? friendlyModel(s.model) + " · working…" : "Working…", "ponder");
   (s.asks || []).forEach(function (item) { if (!item.answered && s.renderAsk) s.renderAsk(item); });
   updateSend();
 }

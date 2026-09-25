@@ -3,6 +3,7 @@ import { $, toast, pref } from '../dom.js';
 import { iosifyLink } from '../handoff.js';
 import { closeDrawer } from '../library.js';
 import { openLightbox } from './lightbox.js';
+import { plumiBox } from '../plumi.js';
 
 /* ======================= Pictures: make one locally ====================== */
 // The everyday door to the image generator. Deliberately small: a description, a
@@ -126,6 +127,9 @@ function stageBusy(label) {
   imgStage.innerHTML = "";
   var box = document.createElement("div");
   box.className = "img-busy";
+  // Plumi at his easel for as long as the picture takes.
+  var painter = plumiBox("paint", 2, { className: "img-plumi" });
+  if (painter) box.appendChild(painter);
   var bar = document.createElement("div");
   bar.className = "img-bar";
   var fill = document.createElement("i");

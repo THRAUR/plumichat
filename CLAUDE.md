@@ -164,6 +164,23 @@ alone gets the height right but leaves the panel anchored to a layout-viewport t
 iOS has already slid away to reveal the cursor — which is how you ended up reading
 the TOP of the terminal while typing at the bottom of it.
 
+## Plumi, the mascot (`public/js/plumi.js`, `public/vendor/plumi/`)
+
+The pixel-art bird in the status pill (he acts out the turn), in an empty chat (a
+wave), in the Images panel (painting) and in a live error row (a shrug).
+
+- `public/vendor/plumi/plumi-animation.js` is a **build output** of the PlumiBot
+  project (sprite, rig and GSAP timelines in one file). Do not edit it; loops are
+  changed at their source and the file is replaced whole. It is not MIT: see the
+  README's licence section.
+- **Whole-pixel scales only** (1x, 2x, 3x, 4x). `plumi.js` sizes every box; CSS
+  must never stretch one, or the bird blurs.
+- Every loop the pill uses is 42px tall with the ground at 40, so they swap in a
+  44px pill; `frameFor()` pins the bird's position across loops of different widths.
+- `setStatus(state, label, loop)`: pass the loop at every `"working"` call; leaving
+  it out keeps the current one, so a label update per token never restarts him.
+- If the file fails to load, `ready()` is false and the page keeps its dots.
+
 ## Wire-protocol pairs
 
 These are matched. Rename one half and downloads or notification tap-through fail

@@ -207,7 +207,10 @@ cannot test. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Two exceptions: the Plumi character in
+`public/vendor/plumi/` is PlumiBot's mascot, all rights reserved, and not covered
+by the MIT licence; and that same file bundles [GSAP](https://gsap.com), used under
+GreenSock's [standard licence](https://gsap.com/standard-license).
 
 Not affiliated with Anthropic. "Claude" and "Claude Code" are trademarks of
 Anthropic, PBC.

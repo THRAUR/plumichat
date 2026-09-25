@@ -786,6 +786,9 @@
   <script src="/vendor/purify.min.js?v=20260703"></script>
   <script src="/vendor/xterm/xterm.js?v=20260706"></script>
   <script src="/vendor/xterm/xterm-addon-fit.js?v=20260706"></script>
+  <!-- Plumi, the mascot: <plumi-animation> + window.Plumi, built from PlumiBot's
+       src/plumi (GSAP core bundled in). js/plumi.js decides where he appears. -->
+  <script src="/vendor/plumi/plumi-animation.js?v=20260925"></script>
   <!-- The chat client. app.js is an ES MODULE (type="module") and imports the rest
        of the app from /js/ — no build step, the server sends the files as they are.
        Two consequences worth knowing: a module is deferred, so this still runs after
@@ -820,6 +823,7 @@
   <link rel="modulepreload" href="/js/icons.js">
   <link rel="modulepreload" href="/js/library.js">
   <link rel="modulepreload" href="/js/models.js">
+  <link rel="modulepreload" href="/js/plumi.js">
   <link rel="modulepreload" href="/js/profile.js">
   <link rel="modulepreload" href="/js/projects.js">
   <link rel="modulepreload" href="/js/quote.js">

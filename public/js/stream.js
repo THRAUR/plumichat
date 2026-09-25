@@ -18,6 +18,7 @@ import { STOP_NOTICE_ICON, THINK_CARET, THINK_ICON } from './icons.js';
 import { convTitle, drawerSearchInput, goToConversation, libraryVisible, openSession, renderLibrary, updatePaneState, updateTopbarTitle } from './library.js';
 import { curModel, effectiveEffort, fastOn, modelCapsFast, models } from './models.js';
 import { notifyAttention, notifyTurnDone } from './panels/notify.js';
+import { loopForTool, pillPlumi } from './plumi.js';
 import { noteContext } from './panels/context.js';
 import { permAllowed, permMode } from './panels/perm.js';
 import { addError, addNotice, addRow, addTool, addUser, makeFileBox, mdNode, scrollDown } from './render.js';
@@ -169,16 +170,19 @@ export function finalizeAssistant() {
 
 /* ---------- Send ---------- */
 // The composer button swaps between Send (idle) and Stop (turn in flight).
-// Live working/done indicator in the status bar above the composer.
+// Live working/done indicator in the status bar above the composer. `loop` names
+// what Plumi acts out in it (plumi.js); leave it out to keep the current one, so
+// a label refresh per streamed token never restarts him.
 export let statusBar = document.getElementById("statusBar");
 export let statusLabel = document.getElementById("statusLabel");
 export let statusInd = statusBar ? statusBar.querySelector(".sb-ind") : null;
 export let statusHideT = null;
 export let STATUS_DOTS = "<span></span><span></span><span></span>";
 export let STATUS_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-export function setStatus(state, label) {
+export function setStatus(state, label, loop) {
   if (!statusBar) return;
   if (statusHideT) { clearTimeout(statusHideT); statusHideT = null; }
+  pillPlumi(state, loop);
   if (state === "working") {
     statusBar.hidden = false;
     // Only rebuild the dots when leaving another state, so the bob animation
@@ -271,10 +275,10 @@ export function send(text, atts, onFail) {
   var sessionForPost = activeSessionId; // null = brand-new chat (server assigns the id)
 
   updateSend();
-  setStatus("working", toUpload.length ? "Uploading…" : "Thinking…");
+  setStatus("working", toUpload.length ? "Uploading…" : "Thinking…", "ponder");
 
   Promise.all(toUpload.map(uploadOne)).then(function (uploaded) {
-    if (stream.token === viewToken) setStatus("working", "Thinking…");
+    if (stream.token === viewToken) setStatus("working", "Thinking…", "ponder");
     consumeStream(stream, project, apiFetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
       signal: stream.abort ? stream.abort.signal : undefined,
@@ -338,7 +342,7 @@ export function attachRun(project, key, quiet) {
     // kept on screen after the drop would sit duplicated above it. Dropping it
     // here is the "let a successful reattach replace it" half of the H2 fix.
     dropInterrupted();
-    setStatus("working", "Working…");
+    setStatus("working", "Working…", "ponder");
   }
   delete reattachTries[key];
   updateSend();
@@ -457,9 +461,10 @@ export function consumeStream(stream, project, responsePromise) {
   // Render (or, after a round-trip, re-render) one buffered prompt card.
   function renderAsk(item) {
     if (item.answered) return;
-    var onResolved = function () { item.answered = true; updatePaneState(); if (live()) setStatus("working", "Working…"); };
+    var onResolved = function () { item.answered = true; updatePaneState(); if (live()) setStatus("working", "Working…", "ponder"); };
     if (item.ev.kind === "question") addQuestionCard(item.ev, onResolved);
     else addPermissionCard(item.ev, onResolved);
+    if (live()) setStatus("working", null, "ask");
   }
   stream.renderAsk = renderAsk;
 
@@ -594,7 +599,7 @@ export function consumeStream(stream, project, responsePromise) {
     // exactly the lie that made the app feel broken. Mark it interrupted, keep
     // the text, and let a successful re-attach replace it from disk.
     markInterrupted();
-    if (live()) setStatus("working", "Reconnecting…");
+    if (live()) setStatus("working", "Reconnecting…", "sleep");
     reattachAfterDrop(project, key, err);
     updateSend();
   }
@@ -670,7 +675,7 @@ export function consumeStream(stream, project, responsePromise) {
         // Close off the answer that just landed so the resumed one starts its own
         // bubble (and takes its own cost badge), then say what we're waiting for.
         finalizeAssistant();
-        setStatus("working", ev.text || "Waiting on background tasks…");
+        setStatus("working", ev.text || "Waiting on background tasks…", "sleep");
       }
       return;
     }
@@ -716,7 +721,7 @@ export function consumeStream(stream, project, responsePromise) {
         currentTurnModel = ev.model;
         currentTurnModelSrc = stream.modelSource;
         currentTurnRequested = stream.requested || "";
-        setStatus("working", friendlyModel(ev.model) + " · working…");
+        setStatus("working", friendlyModel(ev.model) + " · working…", "ponder");
       }
       return;
     }
@@ -737,18 +742,18 @@ export function consumeStream(stream, project, responsePromise) {
     if (!live()) return; // backgrounded conversation — never render into the current view
     if (ev.type === "thinking") {
       addThinking(ev.text);
-      setStatus("working", (currentTurnModel ? friendlyModel(currentTurnModel) + " · " : "") + "thinking…");
+      setStatus("working", (currentTurnModel ? friendlyModel(currentTurnModel) + " · " : "") + "thinking…", "ponder");
     } else if (ev.type === "text") {
       addText(ev.text);
-      setStatus("working", (currentTurnModel ? friendlyModel(currentTurnModel) + " · " : "") + "responding…");
+      setStatus("working", (currentTurnModel ? friendlyModel(currentTurnModel) + " · " : "") + "responding…", "type");
     } else if (ev.type === "tool") {
       finalizeAssistant();
       addTool(ev.name, ev.input ? shortTarget(ev.input) : "", true);
-      setStatus("working", "Running " + ev.name + "…");
+      setStatus("working", "Running " + ev.name + "…", loopForTool(ev.name));
     } else if (ev.type === "notice") {
       finalizeAssistant();
       addNotice(ev.text, ev.phase);
-      setStatus("working", ev.phase === "start" ? ev.text : "Working…");
+      setStatus("working", ev.phase === "start" ? ev.text : "Working…", ev.phase === "start" ? "read" : "ponder");
     } else if (ev.type === "error") {
       finalizeAssistant();
       addError("Error", ev.message, true);
@@ -763,7 +768,7 @@ export function stopCurrent() {
   var key = viewKey;
   if (!activeStreams[key] && !reattachTries[key]) return;
   if (/^new:/.test(String(key))) { toast("Starting up — try again in a moment."); return; }
-  setStatus("working", "Stopping…");
+  setStatus("working", "Stopping…", "idle");
   apiFetch("/api/chat/stop", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ key: key, reason: "Stopped by you" })

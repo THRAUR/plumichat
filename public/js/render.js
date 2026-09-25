@@ -9,6 +9,7 @@ import { clearConvFiles, registerDeliverable } from './panels/deliverables.js';
 import { $, messages, toast } from './dom.js';
 import { extractDownloadFlags, makeDownloadBox } from './exports.js';
 import { fpDownload } from './files.js';
+import { helloPlumi, plumiBox } from './plumi.js';
 import { DL_ICON, THINK_CARET, THINK_ICON } from './icons.js';
 import { splitQuote } from './quote.js';
 import { bumpViewToken, setCur } from './state.js';
@@ -46,6 +47,9 @@ export function paintStayLive() {
 }
 export function clearMessages() {
   messages.innerHTML = '<div class="day-sep">Today</div>';
+  // Plumi's wave for the empty state; the stylesheet hides it once a row lands.
+  var hello = helloPlumi();
+  if (hello) messages.appendChild(hello);
   detached = false;
   if (jumpBottom) jumpBottom.hidden = true;
   compactNoticeEl = null;
@@ -116,6 +120,9 @@ export function addTool(name, target, animate) {
 export function addError(title, detail, animate) {
   var b = addRow("error", animate);
   var et = document.createElement("div"); et.className = "etitle"; et.textContent = "⚠ " + title;
+  // Live errors only: Plumi shrugs once, then holds the shrug.
+  var shrug = animate ? plumiBox("oops", 1, { once: true, className: "err-plumi" }) : null;
+  if (shrug) b.appendChild(shrug);
   b.appendChild(et);
   if (detail) { var d = document.createElement("div"); d.textContent = detail; b.appendChild(d); }
   scrollDown(false);
