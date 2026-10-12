@@ -17,13 +17,15 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { scrubbedEnv } from './claude.js';
 
 // Used only if neither live source can be reached (token missing/expired,
-// offline). `ctx1m` mirrors what the curated picker offers today, so a 1M request
-// still works while we're running blind.
+// offline). It mirrors the curated picker's current lineup, so running blind
+// still offers what the terminal would. `ctx1m` used to mark the '[1m]' twins the
+// picker offered for Opus 5 and Fable 5.1; it offers none for this lineup — each of
+// these has a 1M window with no suffix — so the static list asks for none either.
 const STATIC_FALLBACK = [
-  { id: 'claude-opus-5', display_name: 'Claude Opus 5', ctx1m: true },
-  { id: 'claude-fable-5-1', display_name: 'Claude Fable 5.1', ctx1m: true },
-  { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' },
-  { id: 'claude-haiku-4-5-20251001', display_name: 'Claude Haiku 4.5' },
+  { id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' },
+  { id: 'claude-fable-5-1', display_name: 'Claude Fable 5.1' },
+  { id: 'claude-sonnet-5-5', display_name: 'Claude Sonnet 5.5' },
+  { id: 'claude-haiku-5-5', display_name: 'Claude Haiku 5.5' },
 ];
 
 const TTL_MS = 30 * 60 * 1000; // the list changes rarely; refresh at most twice an hour
@@ -63,25 +65,79 @@ function effortsOf(caps) {
   return EFFORT_ORDER.filter((k) => caps.effort[k] && caps.effort[k].supported);
 }
 
+// Which family a model id belongs to, and the order families are offered in when
+// nothing better says so — the curated picker's own order of its alias rows. A
+// family nobody has named here yet is its own family ('claude-sonata-1' →
+// 'sonata'), never one shared "other" bucket: Fable arrived exactly like that, and
+// two new families sharing one would make the second look like an older version
+// of the first.
+const KNOWN_FAMILIES = ['opus', 'fable', 'sonnet', 'haiku'];
+function familyOf(id) {
+  const s = String(id || '').toLowerCase();
+  const known = KNOWN_FAMILIES.find((f) => s.includes(f));
+  if (known) return known;
+  const m = /^claude-([a-z]+)/.exec(s);
+  return m ? m[1] : s;
+}
+const FAMILY_ORDER = KNOWN_FAMILIES;
+// What each family is for, in the curated picker's own words. Grades 2 and 3 carry
+// no descriptions at all, and a menu that has one under every row but these would
+// look broken rather than offline.
+const FAMILY_DESC = {
+  opus: 'For complex work and everyday tasks',
+  fable: 'For your toughest challenges',
+  sonnet: 'Most efficient for simpler tasks',
+  haiku: 'Fastest for quick answers',
+};
+
+// Every list leaves here in the shape the picker draws: the LATEST lineup first
+// (one current model per family, in the order given), then every older version,
+// kept together by family in the lineup's order and newest-first within one.
+// `latest` is what the menu splits on — the lineup is always on show, the older
+// versions fold under one row.
+function lineupFirst(models) {
+  const fams = [];
+  const add = (f) => { if (!fams.includes(f)) fams.push(f); };
+  for (const m of models) if (m.latest) add(familyOf(m.id));
+  for (const f of FAMILY_ORDER) add(f);
+  for (const m of models) add(familyOf(m.id));
+  const older = models
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => !m.latest)
+    .sort((a, b) => (fams.indexOf(familyOf(a.m.id)) - fams.indexOf(familyOf(b.m.id))) || (a.i - b.i))
+    .map(({ m }) => m);
+  return [...models.filter((m) => m.latest), ...older];
+}
+
 // Family ordering + capability hints for the UI. We read the model's real effort
 // levels from the API capabilities instead of guessing from the id, so a new model
 // lights up exactly the effort controls it supports (and none if it has none).
 function decorate(list) {
-  const rank = (id) => (/opus/i.test(id) ? 0 : /sonnet/i.test(id) ? 1 : /haiku/i.test(id) ? 2 : 3);
-  return list
+  // A family not in FAMILY_ORDER goes after the ones that are, not before them.
+  const rank = (id) => { const i = FAMILY_ORDER.indexOf(familyOf(id)); return i < 0 ? FAMILY_ORDER.length : i; };
+  const seen = new Set();
+  return lineupFirst(list
     .map((m) => ({
       id: m.id,
       name: m.display_name || m.id,
       short: shortName(m.display_name, m.id),
+      desc: FAMILY_DESC[familyOf(m.id)] || '',
       fast: /opus/i.test(m.id),
       efforts: effortsOf(m.capabilities),
       // /v1/models says nothing about 1M twins; only the curated picker knows.
       ctx1m: !!m.ctx1m,
     }))
-    // Keep the API's newest-first order within each family, families Opus→Sonnet→Haiku.
+    // Keep the API's newest-first order within each family, families in FAMILY_ORDER.
     .map((m, i) => ({ ...m, _i: i }))
     .sort((a, b) => (rank(a.id) - rank(b.id)) || (a._i - b._i))
-    .map(({ _i, ...m }) => m);
+    .map(({ _i, ...m }) => m)
+    // Nobody curated this list, so the newest of each family stands in for the
+    // lineup the CLI's picker would have named.
+    .map((m) => {
+      const latest = !seen.has(familyOf(m.id));
+      seen.add(familyOf(m.id));
+      return { ...m, latest };
+    }));
 }
 
 // --- Grade 1: the CLI's own curated model picker --------------------------
@@ -138,27 +194,54 @@ export async function sdkModels() {
 const baseId = (row) => String(row.resolvedModel || row.value || '').replace(/\[1m\]$/i, '');
 const has1m = (row) => /\[1m\]$/i.test(String(row.value || '')) || /\[1m\]$/i.test(String(row.resolvedModel || ''));
 
-// The picker's descriptions lead with the human version string ("Opus 5 with 1M
-// context · Best for everyday…"), which makes a far better pill label than the
-// menu-oriented displayName ("Default (recommended)"). Fall back to the display
-// name with any trailing parenthetical stripped.
-function sdkShort(row) {
-  const lead = String(row.description || '').split('·')[0].replace(/\s+with 1M context\s*$/i, '').trim();
-  if (lead && lead.length <= 30) return lead;
-  return String(row.displayName || '').replace(/\s*\(.*\)\s*$/, '').trim() || baseId(row);
+// A picker row's human name and its one-line "what it's for". The CLI has written
+// these two ways:
+//   before — displayName named the SLOT ("Default (recommended)") and the
+//            description led with the version: "Opus 5 with 1M context · Best for…"
+//   now    — displayName IS the version ("Opus 5.5") and the description is a bare
+//            line ("For your toughest challenges").
+// The old reader took the description's lead whenever it was short, which under
+// the new format made every short description a model's NAME: the picker offered
+// "Fastest for quick answers" twice and "Efficient for routine tasks" for two
+// different Sonnets. A name carries a version number and a description does not,
+// so whichever of the two has one is the name, and the rest is the description.
+function sdkLabel(row) {
+  const display = String(row.displayName || '').replace(/^Claude\s+/i, '').replace(/\s*\(.*\)\s*$/, '').trim();
+  const parts = String(row.description || '').split('·').map((s) => s.trim()).filter(Boolean);
+  const lead = (parts[0] || '').replace(/\s+with 1M context$/i, '').trim();
+  const named = (s) => !!s && s.length <= 30 && /\d/.test(s);
+  if (named(display)) {
+    // A description that ALSO leads with the name must not repeat it underneath.
+    const dup = lead.toLowerCase().startsWith(display.toLowerCase());
+    return { short: display, desc: (dup ? parts.slice(1) : parts).join(' · ') };
+  }
+  if (named(lead)) return { short: lead, desc: parts.slice(1).join(' · ') };
+  return { short: display || baseId(row), desc: parts.join(' · ') };
 }
 
 // Collapse the picker's rows (several per model: an alias, a 1M twin, …) into one
-// entry per real model id, in the CLI's own order. That order IS the curation —
-// re-sorting it by family the way decorate() does would throw it away.
+// entry per real model id. The CLI's order is still the curation, but it is no
+// longer one family at a time: it leads with the current model of each family and
+// then lists every older version, Haiku 4.5 before Sonnet 5 before Opus 5. Drawn
+// as it came, that was nine family headers for four families.
+//
+// So the FIRST model of each family is its latest, and lineupFirst() groups the
+// rest. Not "the alias rows are the lineup": that holds for the new list, but the
+// list before it named Fable 5.1 by its full id ('claude-fable-5-1[1m]') between
+// two aliases, and would have filed the newest Fable under "Older models".
 function decorateSdk(rows) {
   const out = [], byId = new Map();
-  for (const row of rows || []) {
+  // 'default' names a SLOT ("Default (recommended)"), and the CLI lists it first.
+  // Read it last, so it can fill in a model nothing else describes but never
+  // decides where that model sits — it put Sonnet at the top of the lineup.
+  const all = rows || [];
+  const ordered = [...all.filter((r) => r.value !== 'default'), ...all.filter((r) => r.value === 'default')];
+  for (const row of ordered) {
     const id = baseId(row);
     if (!id) continue;
     let m = byId.get(id);
     if (!m) {
-      m = { id, name: '', short: '', fast: false, efforts: [], ctx1m: false };
+      m = { id, name: '', short: '', desc: '', fast: false, efforts: [], ctx1m: false };
       byId.set(id, m);
       out.push(m);
     }
@@ -166,14 +249,19 @@ function decorateSdk(rows) {
     if (row.supportsFastMode) m.fast = true;
     const levels = EFFORT_ORDER.filter((k) => (row.supportedEffortLevels || []).includes(k));
     if (levels.length > m.efforts.length) m.efforts = levels;
-    // 'default' is an alias row whose label names the slot, not the model — let a
-    // real row overwrite it, but keep it if it's all we have for this id.
-    if (!m.name || row.value !== 'default') {
-      m.short = sdkShort(row);
-      m.name = m.short;
+    // The first row to name a model labels it: a family's alias comes before any
+    // full-id row for the same model, and 'default' — read last — only labels a
+    // model no other row named.
+    if (!m.name) {
+      const l = sdkLabel(row);
+      m.short = l.short;
+      m.name = l.short;
+      m.desc = l.desc;
     }
   }
-  return out;
+  const seen = new Set();
+  for (const m of out) { m.latest = !seen.has(familyOf(m.id)); seen.add(familyOf(m.id)); }
+  return lineupFirst(out);
 }
 
 // Does this model id have a 1M-context twin? Asked by claude.js before it appends

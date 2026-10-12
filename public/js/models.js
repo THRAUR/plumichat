@@ -13,20 +13,13 @@ import { activeStreams, reattachTries, viewKey } from './state.js';
 // `key` = selection identity (lets a "1M context" twin coexist with its base
 // model, which share the same real `id`). `id` = the real model sent to the API.
 export let models = [
-  { key: "claude-opus-4-8", name: "Opus 4.8", short: "Opus 4.8", id: "claude-opus-4-8", fast: true, fam: "opus", newest: true },
-  { key: "claude-sonnet-4-6", name: "Sonnet 4.6", short: "Sonnet 4.6", id: "claude-sonnet-4-6", fam: "sonnet", newest: true },
-  { key: "claude-haiku-4-5-20251001", name: "Haiku 4.5", short: "Haiku 4.5", id: "claude-haiku-4-5-20251001", fam: "haiku", newest: true }
+  { key: "claude-opus-5-5", label: "Opus 5.5", short: "Opus 5.5", id: "claude-opus-5-5", fast: true, fam: "opus", latest: true },
+  { key: "claude-sonnet-5-5", label: "Sonnet 5.5", short: "Sonnet 5.5", id: "claude-sonnet-5-5", fam: "sonnet", latest: true },
+  { key: "claude-haiku-5-5", label: "Haiku 5.5", short: "Haiku 5.5", id: "claude-haiku-5-5", fam: "haiku", latest: true }
 ];
-// The families, each with a 1–2 word note on what it does best. Used to group
-// the picker into clearly-separated sections. Fable has its own entry now —
-// without it Fable 5.1 dropped into the nameless "Other" bucket.
-export let FAMILY = {
-  opus:   { label: "Opus",   blurb: "Most capable" },
-  sonnet: { label: "Sonnet", blurb: "Balanced" },
-  haiku:  { label: "Haiku",  blurb: "Fastest" },
-  fable:  { label: "Fable",  blurb: "Writing & voice" },
-  x:      { label: "Other",  blurb: "" }
-};
+// A model's family. The menu no longer draws a header per family (see
+// renderModelMenu); this is what lets a saved pick that has disappeared fall back
+// to the same family's current model instead of to Sonnet.
 export function familyOf(id) {
   return /opus/i.test(id) ? "opus" : /sonnet/i.test(id) ? "sonnet"
     : /haiku/i.test(id) ? "haiku" : /fable/i.test(id) ? "fable" : "x";
@@ -35,8 +28,18 @@ export function familyOf(id) {
 // Used only when a model reports no effort data (the offline fallback list). Live
 // models carry their own exact effort levels (see modelEfforts()).
 export let DEFAULT_EFFORTS = ["low", "medium", "high", "max"];
-export let effortShort = { low: "Low", medium: "Med", high: "High", xhigh: "XHi", max: "Max" };
-export let curModel = 1;          // Sonnet 4.6
+// Button text. "XHi" read as a typo; the five have to fit one row of a 320px phone.
+export let effortShort = { low: "Low", medium: "Med", high: "High", xhigh: "X-High", max: "Max" };
+// One plain line under the buttons for the level that is on, so the choice says
+// what it trades: thinking time against speed and cost.
+export let effortDesc = {
+  low: "Fastest and cheapest. Least thinking.",
+  medium: "Quicker, with some thinking.",
+  high: "Thinks it through. A good default.",
+  xhigh: "Thinks harder, for tricky problems.",
+  max: "Thinks as long as it needs. Slowest, costs most."
+};
+export let curModel = 1;          // Sonnet 5.5
 export let curEffort = "high";
 export let fastOn = false;
 export let modelsLive = true;     // false once we know we're showing the offline fallback
@@ -46,28 +49,30 @@ export let modelMenu = $("modelMenu");
 export let modelLabel = $("modelLabel");
 
 // Swap the static fallback for the account's LIVE model list (auto-updates as
-// Anthropic grants new models). Every model is fully selectable; the picker is
-// grouped by family (Opus / Sonnet / Haiku / Fable) and only the latest of each
-// family is tagged "Newest" — older ones carry no tag (you can still pick any of
-// them, exactly like Claude Code). A "1M context" twin is added for every model
-// the SERVER marks `ctx1m` (it mirrors the CLI's own '[1m]' picker rows). The old
-// client-side /sonnet-4/ test made the twin vanish the day Sonnet 5 shipped, and
-// never offered it on Opus 5 / Fable 5.1 at all. Re-resolves the saved pick (an
-// old/invalid id falls back to the newest Sonnet).
+// Anthropic grants new models). Every model is fully selectable. The server sends
+// the latest lineup first, each marked `latest` with a one-line `desc` of what it
+// is for, then the older versions; the menu shows the lineup and folds the rest
+// (you can still pick any of them, exactly like Claude Code). A "1M context" twin
+// is added for every model the SERVER marks `ctx1m` (it mirrors the CLI's own
+// '[1m]' picker rows). The old client-side /sonnet-4/ test made the twin vanish
+// the day Sonnet 5 shipped, and never offered it on Opus 5 / Fable 5.1 at all.
+// Re-resolves the saved pick (see resolveModelKey).
 export function applyModelList(list) {
   if (!list || !list.length) return;
   var seen = {}, out = [];
   list.forEach(function (m) {
     var fam = familyOf(m.id);
-    var newest = !seen[fam]; seen[fam] = true;
-    // label = clean menu text (family header already names the family);
-    // short = collapsed-pill text (keeps the "· 1M" so the mode shows when closed).
+    // A server from before `latest` existed: the first of each family stands in.
+    var latest = typeof m.latest === "boolean" ? m.latest : !seen[fam];
+    seen[fam] = true;
+    // label = menu text; short = collapsed-pill text (keeps the "· 1M" so the
+    // mode shows when closed).
     out.push({ key: m.id, label: m.short, short: m.short, id: m.id, fast: !!m.fast,
-               fam: fam, newest: newest, efforts: m.efforts });
+               fam: fam, latest: latest, desc: m.desc || "", efforts: m.efforts });
     // 1M context: offered exactly where the server says the model supports it.
     if (m.ctx1m) {
       out.push({ key: m.id + "#1m", label: m.short, short: m.short + " · 1M",
-                 id: m.id, fast: false, fam: fam, newest: false, ctx1m: true, efforts: m.efforts });
+                 id: m.id, fast: false, fam: fam, latest: latest, desc: "", ctx1m: true, efforts: m.efforts });
     }
   });
   models = out;
@@ -75,15 +80,29 @@ export function applyModelList(list) {
   // /api/settings/profile are two independent fetches. Whichever arrives second
   // has to win, so the pending account key is re-resolved here rather than only
   // in applyAccountDefaults().
-  var mid = accountModelKey || pref("modelId"), idx = -1;
-  models.forEach(function (m, i) { if (m.key === mid) idx = i; });
-  if (idx < 0) {
-    models.forEach(function (m, i) { if (idx < 0 && m.fam === "sonnet" && m.newest && !m.ctx1m) idx = i; });
-    if (idx < 0) idx = 0;
+  var mid = accountModelKey || pref("modelId"), idx = resolveModelKey(mid);
+  if (idx < 0 || models[idx].key !== mid) {
+    if (idx < 0) {
+      models.forEach(function (m, i) { if (idx < 0 && m.fam === "sonnet" && m.latest && !m.ctx1m) idx = i; });
+      if (idx < 0) idx = 0;
+    }
     pref("modelId", models[idx].key);
   }
   curModel = idx;
   updateModelLabel(); renderModelMenu();
+}
+// Where a saved pick lands when the list no longer has it exactly. The CLI drops
+// rows: the '[1m]' twins went the day each model shipped with a 1M window of its
+// own, and a retired version eventually goes too. Falling straight back to Sonnet
+// would quietly move an Opus user onto a smaller model, so try the same model
+// without the 1M marker, then that family's current model. -1 = nothing close.
+export function resolveModelKey(key) {
+  if (!key) return -1;
+  var idx = -1, base = String(key).replace(/#1m$/, ""), fam = familyOf(base);
+  models.forEach(function (m, i) { if (idx < 0 && m.key === key) idx = i; });
+  if (idx < 0) models.forEach(function (m, i) { if (idx < 0 && m.key === base) idx = i; });
+  if (idx < 0 && fam !== "x") models.forEach(function (m, i) { if (idx < 0 && m.fam === fam && m.latest && !m.ctx1m) idx = i; });
+  return idx;
 }
 // Fetch the account's live model list and apply it. cb(ok, count, live) reports the
 // outcome: ok=false means the request itself failed (offline / not signed in);
@@ -152,7 +171,52 @@ export function pickerNote(parent, text, muted) {
 // on, rather than letting the change look ignored.
 export function turnRunning() { return !!activeStreams[viewKey] || !!reattachTries[viewKey]; }
 
+// Whether the "Older models" fold is open. Set each time the menu opens — open
+// exactly when the current pick is an older version, so its tick is never hidden
+// — and flipped by the fold's own row.
+var olderOpen = false;
+
+// Scroll the menu itself until `el` is on screen, keeping the fold's own row in
+// view where both fit. The older versions open BELOW a menu that is already at
+// its height cap, so without this the fold looked like it had done nothing.
+// Not scrollIntoView: that also scrolls the page the menu is anchored to.
+function revealInMenu(el) {
+  var row = modelMenu.querySelector(".mm-more");
+  if (!el || !row) return;
+  var want = Math.min(row.offsetTop - 6, el.offsetTop + el.offsetHeight + 6 - modelMenu.clientHeight);
+  if (want > modelMenu.scrollTop) modelMenu.scrollTop = want;
+}
+var CHEV_SVG = '<svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+
+// One model row. The lineup's rows carry the CLI's "what it's for" line under the
+// name; an older version is a name only, because the CLI gives every Opus the same
+// line and four identical lines in a row say nothing. Every button here is
+// type="button": the menu sits inside the composer's <form>, where a bare <button>
+// is a submit button.
+function modelRow(m, i, older) {
+  var b = document.createElement("button");
+  b.type = "button";
+  b.className = "model-item" + (older ? " older" : "");
+  b.setAttribute("role", "option");
+  b.setAttribute("aria-checked", i === curModel ? "true" : "false");
+  var name = document.createElement("span"); name.className = "mname";
+  var bb = document.createElement("b"); bb.textContent = m.label || m.short; name.appendChild(bb);
+  if (!older && m.desc) { var d = document.createElement("span"); d.className = "mdesc"; d.textContent = m.desc; name.appendChild(d); }
+  b.appendChild(name);
+  if (m.ctx1m) { var t1 = document.createElement("span"); t1.className = "mtag ctx"; t1.textContent = "1M context"; b.appendChild(t1); }
+  b.insertAdjacentHTML("beforeend", tickSvg());
+  b.addEventListener("click", function () {
+    curModel = i; pref("modelId", m.key);
+    saveDefaults({ model: m.key });
+    updateModelLabel(); renderModelMenu();
+    closeModel();
+  });
+  return b;
+}
+
 export function renderModelMenu() {
+  // Rebuilt on every change; keep the reader where they were in a menu that scrolls.
+  var keep = modelMenu.scrollTop;
   modelMenu.innerHTML = "";
   if (memberModelLocked) {
     pickerNote(modelMenu, "Your workspace runs every turn on its default model — this picker won't change it. Ask the owner to allow model switching.", true);
@@ -172,75 +236,87 @@ export function renderModelMenu() {
   top.appendChild(rb);
   modelMenu.appendChild(top);
 
-  var curFam = null;
-  models.forEach(function (m, i) {
-    // New family → emit a section header: bold family name + a 1–2 word note.
-    if (m.fam !== curFam) {
-      curFam = m.fam;
-      var meta = FAMILY[curFam] || { label: curFam || "Models", blurb: "" };
-      var h = document.createElement("div");
-      h.className = "mm-fam" + (i === 0 ? " first" : "");
-      var nm = document.createElement("span"); nm.className = "mm-fam-name"; nm.textContent = meta.label; h.appendChild(nm);
-      if (meta.blurb) { var bl = document.createElement("span"); bl.className = "mm-fam-blurb"; bl.textContent = meta.blurb; h.appendChild(bl); }
-      modelMenu.appendChild(h);
-    }
-    var b = document.createElement("button");
-    b.className = "model-item";
-    b.setAttribute("role", "option");
-    b.setAttribute("aria-checked", i === curModel ? "true" : "false");
-    var name = document.createElement("span"); name.className = "mname";
-    var bb = document.createElement("b"); bb.textContent = m.label || m.short; name.appendChild(bb);
-    b.appendChild(name);
-    // Tag only the meaningful cases: the 1M-context twin, and the newest of a
-    // family. Everything else (older versions) stays untagged but selectable.
-    if (m.ctx1m) { var t1 = document.createElement("span"); t1.className = "mtag ctx"; t1.textContent = "1M context"; b.appendChild(t1); }
-    else if (m.newest) { var t2 = document.createElement("span"); t2.className = "mtag new"; t2.textContent = "Newest"; b.appendChild(t2); }
-    b.insertAdjacentHTML("beforeend", tickSvg());
-    b.addEventListener("click", function () {
-      curModel = i; pref("modelId", m.key);
-      saveDefaults({ model: m.key });
-      updateModelLabel(); renderModelMenu();
+  // The models. This menu used to draw a family header whenever the family changed
+  // from one row to the next, which worked while the CLI listed one family at a
+  // time. It stopped doing that — the current model of each family first, then
+  // every older version in no family order — and the menu came out as nine headers
+  // for four families, two of them over the same Sonnet. So no headers: the latest
+  // lineup (which the server marks) is always on show, each row saying what it is
+  // for, and the older versions fold under one row. A phone sees four choices and
+  // the effort control without scrolling.
+  var latest = [], older = [];
+  models.forEach(function (m, i) { (m.latest ? latest : older).push(i); });
+  if (!latest.length) { latest = older; older = []; }
+  latest.forEach(function (i) { modelMenu.appendChild(modelRow(models[i], i, false)); });
+  if (older.length) {
+    var more = document.createElement("button");
+    more.type = "button"; more.className = "mm-more";
+    more.setAttribute("aria-expanded", olderOpen ? "true" : "false");
+    more.innerHTML = '<span class="mm-more-label">Older models</span><span class="mm-count"></span>' + CHEV_SVG;
+    more.querySelector(".mm-count").textContent = String(older.length);
+    more.addEventListener("click", function (e) {
+      e.stopPropagation();   // a fold, not a choice: the menu stays open
+      olderOpen = !olderOpen; renderModelMenu();
+      if (olderOpen) revealInMenu(modelMenu.querySelector(".mm-older"));
     });
-    modelMenu.appendChild(b);
-  });
+    modelMenu.appendChild(more);
+    if (olderOpen) {
+      var box = document.createElement("div"); box.className = "mm-older";
+      older.forEach(function (i) { box.appendChild(modelRow(models[i], i, true)); });
+      modelMenu.appendChild(box);
+    }
+  }
 
-  // Effort — only shown for models that expose it (Haiku and older ids don't).
+  // Effort — only shown for models that expose it (Haiku 4.5 and older ids don't).
   // Options come straight from the model's own capabilities, so xhigh/max appear
-  // exactly where they're supported and nowhere else.
+  // exactly where they're supported and nowhere else. Picking one keeps the menu
+  // open, because the line under the buttons is how you learn what it does.
   var effList = modelEfforts();
   if (effList.length) {
     var effOn = effectiveEffort();
     modelMenu.insertAdjacentHTML("beforeend", '<div class="mm-sep"></div>');
     var el = document.createElement("div"); el.className = "mm-label"; el.textContent = "Effort"; modelMenu.appendChild(el);
-    var hint = document.createElement("div"); hint.className = "effort-hint";
-    hint.innerHTML = "<span>Faster</span><span>Smarter</span>"; modelMenu.appendChild(hint);
     var seg = document.createElement("div"); seg.className = "effort-seg";
+    seg.setAttribute("role", "group"); seg.setAttribute("aria-label", "Effort");
     effList.forEach(function (e) {
       var o = document.createElement("button");
+      o.type = "button";
       o.className = "effort-opt" + (e === effOn ? " on" : "");
+      o.setAttribute("aria-pressed", e === effOn ? "true" : "false");
       o.textContent = effortShort[e] || e;
-      o.addEventListener("click", function () {
+      o.addEventListener("click", function (ev) {
+        ev.stopPropagation();
         curEffort = e; pref("effort", e); saveDefaults({ effort: e }); renderModelMenu();
       });
       seg.appendChild(o);
     });
     modelMenu.appendChild(seg);
+    if (effortDesc[effOn]) {
+      var ed = document.createElement("div"); ed.className = "effort-desc";
+      ed.textContent = effortDesc[effOn]; modelMenu.appendChild(ed);
+    }
   }
 
-  modelMenu.insertAdjacentHTML("beforeend", '<div class="mm-sep"></div>');
-  var fast = document.createElement("button");
-  fast.className = "mm-toggle";
-  fast.disabled = !modelCapsFast();
-  fast.setAttribute("aria-checked", (fastOn && modelCapsFast()) ? "true" : "false");
-  fast.innerHTML = '<span class="mname"><b>Fast mode</b><span class="mdesc">' +
-    (modelCapsFast() ? "Faster output on Opus" : "Opus models only") + '</span></span><span class="switch"></span>';
-  fast.addEventListener("click", function () {
-    if (!modelCapsFast()) return;
-    fastOn = !fastOn; pref("fast", fastOn ? "1" : "0");
-    saveDefaults({ fastMode: fastOn });
-    updateModelLabel(); renderModelMenu();
-  });
-  modelMenu.appendChild(fast);
+  // Fast mode, only where the model has it. A greyed-out "Opus models only" row
+  // sat in every menu on every other model; the pill still says "· Fast" whenever
+  // it is actually on.
+  if (modelCapsFast()) {
+    modelMenu.insertAdjacentHTML("beforeend", '<div class="mm-sep"></div>');
+    var fast = document.createElement("button");
+    fast.type = "button";
+    fast.className = "mm-toggle";
+    fast.setAttribute("role", "switch");
+    fast.setAttribute("aria-checked", fastOn ? "true" : "false");
+    fast.innerHTML = '<span class="mname"><b>Fast mode</b><span class="mdesc">Same model, faster replies. Costs more.</span></span><span class="switch"></span>';
+    fast.addEventListener("click", function (e) {
+      e.stopPropagation();
+      fastOn = !fastOn; pref("fast", fastOn ? "1" : "0");
+      saveDefaults({ fastMode: fastOn });
+      updateModelLabel(); renderModelMenu();
+    });
+    modelMenu.appendChild(fast);
+  }
+  modelMenu.scrollTop = keep;
 }
 
 /* The account's answer, applied whenever it arrives. Called by loadProfile().
@@ -253,7 +329,8 @@ export function applyAccountDefaults(d) {
   if (typeof d.model === "string" && d.model) {
     accountModelKey = d.model;
     pref("modelId", d.model);
-    models.forEach(function (m, i) { if (m.key === d.model) curModel = i; });
+    var at = resolveModelKey(d.model);
+    if (at >= 0) curModel = at;
   }
   if (d.effort && effortShort[d.effort]) { curEffort = d.effort; pref("effort", d.effort); }
   if (typeof d.fastMode === "boolean") { fastOn = d.fastMode; pref("fast", fastOn ? "1" : "0"); }
@@ -266,8 +343,8 @@ export function closeModel() { modelPicker.classList.remove("open"); modelBtn.se
 export function initModelPicker() {
   // Restore prefs
   (function () {
-    var mid = pref("modelId");
-    if (mid) models.forEach(function (m, i) { if (m.key === mid) curModel = i; });
+    var at = resolveModelKey(pref("modelId"));
+    if (at >= 0) curModel = at;
     var ef = pref("effort"); if (ef && effortShort[ef]) curEffort = ef;
     if (pref("fast") === "1") fastOn = true;
   })();
@@ -281,7 +358,11 @@ export function initModelPicker() {
     e.stopPropagation();
     var open = modelPicker.classList.toggle("open");
     modelBtn.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) { closeMenu(); closeSkills(); closeFiles(); renderModelMenu(); }
+    if (open) {
+      olderOpen = !!(models[curModel] && !models[curModel].latest);
+      closeMenu(); closeSkills(); closeFiles(); renderModelMenu();
+      if (olderOpen) revealInMenu(modelMenu.querySelector('.mm-older [aria-checked="true"]'));
+    }
   });
   updateModelLabel();
   renderModelMenu();

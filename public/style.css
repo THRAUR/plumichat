@@ -1537,7 +1537,8 @@
 .md img { cursor: zoom-in; -webkit-touch-callout: default; -webkit-user-select: none; user-select: none; }
 
 /* ---------- Model + effort menu ---------- */
-.model-menu { min-width: 250px; max-height: min(70vh, 520px); overflow-y: auto; scrollbar-width: thin; }
+/* 296px is what five effort buttons need with "X-High" on one of them. */
+.model-menu { min-width: 296px; max-height: min(70vh, 520px); overflow-y: auto; scrollbar-width: thin; }
 /* Header row of the picker: a label on the left, a refresh (↻) button on the right. */
 .mm-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px 5px; }
 .mm-top-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); }
@@ -1553,33 +1554,46 @@
   color: var(--faint); padding: 8px 10px 4px;
 }
 .mm-sep { height: 1px; background: var(--line); margin: 6px 4px; }
-/* Family section header: bold family name + a faint 1–2 word capability note.
-   A hairline above each group (except the first) keeps the families distinct. */
-.mm-fam {
-  display: flex; align-items: baseline; gap: 8px;
-  padding: 9px 10px 4px; margin-top: 5px;
-  border-top: 1px solid var(--line);
+/* The menu draws no family headers any more (renderModelMenu says why). The
+   latest lineup is a plain list of name + one line on what each is for; the older
+   versions fold under .mm-more, which is quieter than a model row because it is a
+   way in, not a choice. */
+.model-item .mdesc { margin-top: 1px; }
+.mm-more {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 9px 10px; border: 0; background: transparent; color: var(--muted);
+  border-radius: var(--r-md); text-align: left; font-size: 12.5px; font-weight: 500;
+  transition: background 0.12s ease, color 0.12s ease;
 }
-.mm-fam.first { margin-top: 2px; border-top: 0; }
-.mm-fam-name { font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em; color: var(--text); }
-.mm-fam-blurb { font-size: 10.5px; font-weight: 500; color: var(--faint); }
+.mm-more:hover { background: var(--surface-3); color: var(--text); }
+.mm-more .mm-count { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+.mm-more .chev { margin-left: auto; flex: none; color: var(--faint); transition: transform 0.18s ease; }
+.mm-more[aria-expanded="true"] .chev { transform: rotate(180deg); }
+/* Older versions hang off a hairline, names only (the CLI gives every older Opus
+   the same description, so the lines said nothing). */
+.mm-older { margin: 0 0 2px 10px; border-left: 1px solid var(--line-strong); }
+.mm-older .model-item { padding-top: 7px; padding-bottom: 7px; }
+.mm-older .model-item .mname b { font-size: 13px; font-weight: 500; }
 /* Tags are informational only — every model stays full-strength and selectable.
-   "Newest" is a neutral chip; "1M context" is an accent (feature) chip. */
+   The one left is "1M context", an accent (feature) chip, for a '[1m]' twin. */
 .model-item .mtag {
   margin-left: 6px; font-size: 10px; font-weight: 600; color: var(--faint);
   border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 5px;
 }
 .model-item .mtag.ctx { color: var(--accent-text); border-color: var(--accent); }
-.effort-seg { display: flex; gap: 5px; padding: 4px 8px 8px; }
+/* Effort. The level that is on is a SELECTION, so it inverts (--text fill) like
+   every other selected chip; the accent in this menu is the current model's tick.
+   .effort-desc is the line that says what the level trades. */
+.effort-seg { display: flex; gap: 4px; padding: 2px 8px 6px; }
 .effort-opt {
-  flex: 1; padding: 8px 4px; border-radius: var(--r-md);
+  flex: 1; min-width: 0; padding: 8px 2px; border-radius: var(--r-md);
   border: 1px solid var(--line); background: var(--surface);
-  color: var(--muted); font-size: 12.5px; font-weight: 500; text-align: center;
+  color: var(--muted); font-size: 12.5px; font-weight: 500; text-align: center; white-space: nowrap;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .effort-opt:hover { background: var(--surface-3); color: var(--text); }
-.effort-opt.on { background: var(--accent-dim); border-color: var(--accent-line); color: var(--accent-text); }
-.effort-hint { display: flex; justify-content: space-between; padding: 0 10px 4px; font-size: 10.5px; color: var(--faint); }
+.effort-opt.on, .effort-opt.on:hover { background: var(--text); border-color: var(--text); color: var(--bg); font-weight: 600; }
+.effort-desc { padding: 0 10px 6px; font-size: 11px; line-height: 1.35; color: var(--faint); }
 .mm-toggle {
   display: flex; align-items: center; gap: 10px; width: 100%;
   padding: 9px 10px; border: 0; background: transparent; color: var(--text);
@@ -1728,8 +1742,12 @@
   .model-btn { height: 40px; padding: 0 12px; font-size: 13px; }
   .perm-btn { height: 40px; }
   .send-btn { width: 44px; height: 44px; }
-  .model-menu { min-width: 220px; }
   .model-item, .perm-item { padding: 12px 10px; }
+  /* Touch sizes for the menu's smaller rows: the fold, an older version and an
+     effort level each clear the 36px floor the rest of the chrome keeps to. */
+  .mm-more { padding: 12px 10px; }
+  .mm-older .model-item { padding-top: 10px; padding-bottom: 10px; }
+  .effort-opt { padding: 10px 2px; }
 }
 /* Phones: the composer has more controls (attach, pictures, voice, server files,
    skills, approval, model, send) than fit on one row. They used to sit in a hidden
@@ -4145,6 +4163,8 @@ body {
      240px is the composer plus the top bar; the 150px floor leaves a list that
      scrolls rather than one that collapses. */
   --menu-max-h: max(150px, min(340px, calc(var(--app-h, 100vh) - 240px)));
+  /* The model menu's own, taller cap (see 10b) — same arithmetic, same floor. */
+  --menu-tall-h: max(150px, min(560px, calc(var(--app-h, 100vh) - 240px)));
 }
 .composer-inner:focus-within {
   border-color: var(--accent);
@@ -4327,6 +4347,11 @@ body {
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  /* The model menu ends in controls, not in more list: effort and fast mode sit
+     under the models, and at the shared 340px they were below the fold, so the
+     menu opened looking like a list with nothing to set. It may grow taller,
+     still measured against --app-h, so with the keyboard up it shrinks the same. */
+  .model-menu { max-height: var(--menu-tall-h); }
 }
 
 /* ---------- 11. tap targets ----------

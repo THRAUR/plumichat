@@ -493,6 +493,10 @@
     .row .rctl { align-self: flex-start; width: 100%; }
     .row .rctl .seg { width: 100%; }
     .row .rctl .seg button { flex: 1; }
+    /* Five effort levels share 324px at 390, and the 14px side padding broke
+       "X-High" in two at its hyphen. The buttons stretch to fill the row, so the
+       padding was only ever the floor under the label, never its spacing. */
+    .row .rctl .seg button { min-width: 0; padding-left: 4px; padding-right: 4px; white-space: nowrap; }
     /* A switch is small and reads better where it always was: on the right. */
     .row:has(.switch) { flex-direction: row; align-items: center; }
     .row:has(.switch) .rctl { width: auto; align-self: center; }
@@ -700,7 +704,7 @@
             <div class="panel">
               <div class="row"><div class="rmain"><div class="rlabel">Model</div><div class="rdesc">The model a new turn uses.</div></div><div class="rctl" style="width:230px"><select id="defModel"><option value="">Loading…</option></select></div></div>
               <div class="row" id="defEffortRow"><div class="rmain"><div class="rlabel">Effort</div><div class="rdesc">How hard it thinks before answering. Only shown for models that support it.</div></div><div class="rctl"><div class="seg" id="defEffort"></div></div></div>
-              <div class="row" id="defFastRow"><div class="rmain"><div class="rlabel">Fast mode</div><div class="rdesc">Faster output on Opus. Same model, not a smaller one.</div></div><div class="rctl"><button class="switch" id="defFast" type="button" role="switch" aria-checked="false"></button></div></div>
+              <div class="row" id="defFastRow"><div class="rmain"><div class="rlabel">Fast mode</div><div class="rdesc">Faster replies from the same model, not a smaller one. Costs more.</div></div><div class="rctl"><button class="switch" id="defFast" type="button" role="switch" aria-checked="false"></button></div></div>
               <div class="row"><div class="rmain"><div class="rlabel">Compact long chats</div><div class="rdesc">When a chat grows this big, Claude summarizes its older part, so every new message costs less. Only matters with the 1M context window.</div></div><div class="rctl" style="width:230px"><select id="defCompact">
                 <option value="200000">At 200k tokens</option>
                 <option value="300000">At 300k tokens (recommended)</option>
@@ -1022,7 +1026,7 @@
     var pSel = document.getElementById("defPerm");
     var cSel = document.getElementById("defCompact");
     if (!mSel) return;
-    var EFFORT_SHORT = { low: "Low", medium: "Med", high: "High", xhigh: "XHi", max: "Max" };
+    var EFFORT_SHORT = { low: "Low", medium: "Med", high: "High", xhigh: "X-High", max: "Max" };
     var live = [];            // the account's real model list, from /api/models
     var cur = { model: "", effort: "", fastMode: false, permissionMode: "default" };
 
@@ -1032,8 +1036,13 @@
         .then(function () { toast("ok", "Saved"); })
         .catch(function (e) { toast("error", (e && e.message) || "Could not save"); });
     }
+    // A '[1m]' twin the CLI no longer offers reads as its base model — the twins
+    // went when each model got a 1M window of its own — the way the composer
+    // resolves the same saved key (resolveModelKey in js/models.js).
     function modelOf(key) {
       for (var i = 0; i < live.length; i++) if (live[i].key === key) return live[i];
+      var base = String(key || "").replace(/#1m$/, "");
+      if (base !== key) for (var j = 0; j < live.length; j++) if (live[j].key === base) return live[j];
       return null;
     }
     // Only the levels THIS model actually accepts, exactly like the composer's
@@ -1062,12 +1071,20 @@
       var d = document.createElement("option");
       d.value = ""; d.textContent = "Server default";
       mSel.appendChild(d);
-      live.forEach(function (m) {
-        var o = document.createElement("option");
-        o.value = m.key; o.textContent = m.label;
-        mSel.appendChild(o);
+      // The composer menu's split: the latest lineup, then the older versions.
+      var split = live.some(function (m) { return m.latest; }) && live.some(function (m) { return !m.latest; });
+      [["Latest", true], ["Older models", false]].forEach(function (g) {
+        var parent = mSel;
+        if (split) { parent = document.createElement("optgroup"); parent.label = g[0]; mSel.appendChild(parent); }
+        live.forEach(function (m) {
+          if (split ? !!m.latest !== g[1] : !g[1]) return;
+          var o = document.createElement("option");
+          o.value = m.key; o.textContent = m.label;
+          parent.appendChild(o);
+        });
       });
-      mSel.value = modelOf(cur.model) ? cur.model : "";
+      var hit = modelOf(cur.model);
+      mSel.value = hit ? hit.key : "";
     }
     mSel.addEventListener("change", function () {
       var m = modelOf(mSel.value);
@@ -1095,8 +1112,8 @@
     sapi("GET", "/api/models").then(function (d) {
       var out = [];
       ((d && d.models) || []).forEach(function (m) {
-        out.push({ key: m.id, label: m.short, efforts: m.efforts, fast: !!m.fast });
-        if (m.ctx1m) out.push({ key: m.id + "#1m", label: m.short + " · 1M", efforts: m.efforts, fast: false });
+        out.push({ key: m.id, label: m.short, efforts: m.efforts, fast: !!m.fast, latest: !!m.latest });
+        if (m.ctx1m) out.push({ key: m.id + "#1m", label: m.short + " · 1M", efforts: m.efforts, fast: false, latest: !!m.latest });
       });
       live = out; paintModels(); paintEffort();
     }).catch(function () { paintModels(); });
