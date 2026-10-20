@@ -176,7 +176,11 @@ export async function shipEngineUpdate({ target = 'sdk', version, isBusy } = {})
   shipping = true;
   const flagFile = path.join(DATA_DIR, 'engine-watchdog-result.json');
   try { fs.rmSync(flagFile, { force: true }); } catch { /* first run */ }
-  setJob({ startedAt: Date.now(), target, version: version || 'latest', steps: [], done: false, ok: null, error: null });
+  // A fresh record, not a merge into the last one: setJob() merges, so the previous
+  // run's `upToDate`, `note` and `restarting` rode along into every run after it —
+  // a failed run carried "the live server is already running 0.3.278" from weeks
+  // before, and the panel reads `job.upToDate` to say "Already up to date".
+  update(STORE, () => ({ job: { startedAt: Date.now(), target, version: version || 'latest', steps: [], done: false, ok: null, error: null } }), { job: null });
 
   try {
     // 0 — level the dev repo with origin FIRST. It is the tree this flow pushes
@@ -193,8 +197,9 @@ export async function shipEngineUpdate({ target = 'sdk', version, isBusy } = {})
     //     engine.js's whole existing flow; no reason to reimplement it.
     const applied = await applyUpdate({ target, version, dryRun: false, isBusy });
     if (!applied || applied.ok === false) {
-      pushStep('canary', false, (applied && applied.error) || 'the staged canary did not pass');
-      return finish(false, (applied && applied.error) || 'the staged canary did not pass');
+      const reason = whyNotApplied(applied);
+      pushStep('canary', false, reason);
+      return finish(false, reason);
     }
     pushStep('canary', true, 'staged install ran a real turn and the SDK option surface still matches');
 
@@ -363,6 +368,19 @@ async function alignDevRepo() {
   }
   if (ahead) return { ok: true, note: ahead + ' local commit' + (ahead === 1 ? '' : 's') + ' waiting to be pushed' };
   return { ok: true, note: 'dev repo level with origin' };
+}
+
+// applyUpdate() files the reason on the PART that failed (verdict.sdk, .cli or
+// .promote), and puts `error` on its own result only for an up-front refusal. So
+// reading `applied.error` alone reported every real failure as the same generic
+// line — an expired Claude sign-in on the box looked exactly like a broken SDK.
+function whyNotApplied(applied) {
+  const v = (applied && applied.verdict) || {};
+  return (applied && applied.error)
+    || (v.sdk && v.sdk.ok === false && v.sdk.error)
+    || (v.cli && v.cli.ok === false && v.cli.error && 'terminal CLI update failed: ' + v.cli.error)
+    || (v.promote && v.promote.ok === false && 'the dev repo was not updated: ' + v.promote.error)
+    || 'the staged canary did not pass';
 }
 
 function restoreModules() {

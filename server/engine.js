@@ -517,6 +517,23 @@ async function runCanary() {
   }
 }
 
+// "no OK in the reply" threw away the one useful fact: what the reply WAS. A turn
+// that cannot sign in, or is over the account's usage limit, answers in plain words
+// instead of OK ("Failed to authenticate: OAuth session expired…") — and that says
+// nothing about the new version. The account blocked the update, not the engine,
+// and the fix is a sign-in on the box, so say that rather than "canary failed".
+function canaryWhy(canary) {
+  const said = String(canary.error || canary.reply || '').trim();
+  if (!said) return 'no OK in the reply';
+  if (/authenticat|oauth|not logged in|\/login/i.test(said)) {
+    return 'Claude is signed out on this server — open the terminal, run claude, type /login, then try the update again (it said: ' + said.slice(0, 200) + ')';
+  }
+  if (/usage limit|session limit|rate limit/i.test(said)) {
+    return 'the Claude account is at its usage limit — try the update again after it resets (it said: ' + said.slice(0, 200) + ')';
+  }
+  return canary.error ? said : 'the test turn replied "' + said + '" instead of OK';
+}
+
 /* --------------------------- Options surface diff -------------------------- */
 
 // Pull the top-level key names out of `export declare type Options = { … }` in a
@@ -715,7 +732,7 @@ export async function applyUpdate({ target = 'sdk', version, dryRun = true, prun
             from: status.sdk.installed, to: staged.staged || want,
             canary, options,
           };
-          if (!canary.ok) verdict.sdk.error = 'canary failed: ' + (canary.error || 'no OK in the reply');
+          if (!canary.ok) verdict.sdk.error = 'canary failed: ' + canaryWhy(canary);
           else if (options.ok === false) verdict.sdk.error = 'the new SDK drops Options PlumiChat passes: ' + options.lost.join(', ');
         }
       }
