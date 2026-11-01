@@ -16,7 +16,7 @@ import { extractDownloadFlags, makeDownloadBox } from './exports.js';
 import { fetchSessions } from './history.js';
 import { STOP_NOTICE_ICON, THINK_CARET, THINK_ICON } from './icons.js';
 import { convTitle, drawerSearchInput, goToConversation, libraryVisible, openSession, renderLibrary, updatePaneState, updateTopbarTitle } from './library.js';
-import { curModel, effectiveEffort, fastOn, modelCapsFast, models } from './models.js';
+import { applyAccountDefaults, curModel, effectiveEffort, fastOn, modelCapsFast, models } from './models.js';
 import { notifyAttention, notifyTurnDone } from './panels/notify.js';
 import { loopForTool, pillPlumi } from './plumi.js';
 import { noteContext } from './panels/context.js';
@@ -649,6 +649,10 @@ export function consumeStream(stream, project, responsePromise) {
       if (libraryVisible()) renderLibrary(drawerSearchInput.value);
       return;
     }
+    // The service refused fast mode for a reason that will repeat, and the server has
+    // saved the account's switch as off. It is the account's switch, so this applies
+    // whichever conversation is on screen.
+    if (ev.type === "fastOff") { applyAccountDefaults({ fastMode: false }); return; }
     // The turn finished — remember why so onDone can show the right thing.
     if (ev.type === "ended") {
       // `stalled` — the server's background-wait valve ended it, not a human.
@@ -752,7 +756,7 @@ export function consumeStream(stream, project, responsePromise) {
       setStatus("working", "Running " + ev.name + "…", loopForTool(ev.name));
     } else if (ev.type === "notice") {
       finalizeAssistant();
-      addNotice(ev.text, ev.phase);
+      addNotice(ev.text, ev.phase, ev.link);
       setStatus("working", ev.phase === "start" ? ev.text : "Working…", ev.phase === "start" ? "read" : "ponder");
     } else if (ev.type === "error") {
       finalizeAssistant();

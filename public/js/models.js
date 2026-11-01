@@ -307,7 +307,7 @@ export function renderModelMenu() {
     fast.className = "mm-toggle";
     fast.setAttribute("role", "switch");
     fast.setAttribute("aria-checked", fastOn ? "true" : "false");
-    fast.innerHTML = '<span class="mname"><b>Fast mode</b><span class="mdesc">Same model, faster replies. Costs more.</span></span><span class="switch"></span>';
+    fast.innerHTML = '<span class="mname"><b>Fast mode</b><span class="mdesc">Same model, faster replies. Costs more. Needs usage credits on a Claude plan.</span></span><span class="switch"></span>';
     fast.addEventListener("click", function (e) {
       e.stopPropagation();
       fastOn = !fastOn; pref("fast", fastOn ? "1" : "0");

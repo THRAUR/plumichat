@@ -82,7 +82,7 @@ open for up to `PLUMI_BACKGROUND_MAX_MS` (1 hour) after its reply.
 |---|---|
 | **Model** | The CLI's own curated list, including the `[1m]` million-token variants. |
 | **Effort** | How hard the model thinks before answering. |
-| **Fast mode** | Same model, faster output. |
+| **Fast mode** | Same model, faster output, at a higher price. A Claude plan pays for it with usage credits; with those off, PlumiChat says so once, links to the setting and turns the switch back off. |
 | **Approval mode** | *Ask first* (default) · *Accept edits* · *Bypass*. Members are pinned to *Ask first* server-side. |
 | **`/`** | Slash-command picker, read live from the engine — a command the CLI gains appears here with no code change. |
 | **`@`** | Attach a file from your workspace. |

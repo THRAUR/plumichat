@@ -335,12 +335,13 @@ function friendlyError(raw, stderr) {
 
 // Why the CLI refused a fast-mode request, in words a human can act on. Fast mode
 // is asked for through the settings layer (see runPrompt) and the CLI reports back
-// on the init message whether it engaged; when it did not, the UI must say so
-// rather than keep showing "· Fast" — a toggle that lies is worse than no toggle.
+// on the init and result messages whether it engaged; when it did not, the UI must
+// say so rather than keep showing "· Fast" — a toggle that lies is worse than no toggle.
 const FAST_MODE_WHY = {
   free: 'your plan does not include it',
   preference: 'it is switched off in this box\'s Claude settings',
-  extra_usage_disabled: 'extra usage is turned off for this account',
+  // "Usage credits" because that is what the page that turns them on calls them.
+  extra_usage_disabled: 'it needs usage credits, which are off on this Claude account',
   network_error: 'the service could not be reached to enable it',
   not_first_party: 'this login cannot use it',
   disabled_by_env: 'an environment variable on the box disables it',
@@ -351,6 +352,27 @@ const FAST_MODE_WHY = {
 function fastModeWhy(reason, state) {
   if (state === 'cooldown') return 'it is cooling down after a rate limit';
   return FAST_MODE_WHY[reason] || 'the service did not say why';
+}
+// The refusals that come back word for word on every turn until someone changes
+// something outside this app. The reply runs at normal speed either way, so repeating
+// one under every answer only nags while the pill goes on claiming "· Fast". The first
+// one switches the toggle off instead, as the CLI's own VS Code panel does when credits
+// run out: off until you turn it back on. A cooldown or a network error clears by
+// itself, so those keep the toggle and get the notice for that turn.
+const FAST_MODE_LASTING = new Set(['free', 'preference', 'extra_usage_disabled', 'not_first_party', 'disabled_by_env']);
+const FAST_MODE_LINK = {
+  extra_usage_disabled: { href: 'https://claude.ai/settings/usage', label: 'Open Claude usage settings' },
+};
+function fastModeRefusal(reason, state) {
+  const why = fastModeWhy(reason, state);
+  if (state === 'cooldown' || !FAST_MODE_LASTING.has(reason)) {
+    return { lasting: false, text: `Fast mode is off for this turn — ${why}.` };
+  }
+  return {
+    lasting: true,
+    text: `Fast mode is now off: ${why}. Once that changes, switch it back on in the model menu.`,
+    link: FAST_MODE_LINK[reason],
+  };
 }
 
 // "15 minutes" / "45 seconds" for a duration in ms — used by the background-wait
@@ -402,6 +424,9 @@ async function has1mVariant(id) {
 //   { type: 'task', phase, id, name, description, status, summary } — task lifecycle row
 //   { type: 'limits', status, resetsAt, kind, overage }             — rate-limit window changed
 //   { type: 'thinkingTokens', estimated }                           — throttled thinking-token estimate
+//   { type: 'fastOff' }                                              — fast mode was refused for a reason
+//        that will repeat, so the account's switch goes off (runs.js saves it, stream.js shows it).
+//        A 'notice' may also carry link: { href, label } — somewhere to go about what it says.
 export async function runPrompt({
   prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
   onEvent, askUser, allowAlways, abortController, canUseTool, sandbox, memory, imagegen, compactAt,
@@ -551,6 +576,20 @@ export async function runPrompt({
   })();
   const q = query({ prompt: input, options });
   let knownSession = sessionId || null;
+  // Reported once per turn, from whichever message says it first. Init alone is not
+  // enough: the CLI asks the server about the account at startup and does not wait
+  // for the answer, so one account with credits off has read both 'on' and 'off' at
+  // init (measured on 2.1.316). By the result the server has normally answered, so
+  // that is checked too: an init that read 'on' would otherwise leave a reply at
+  // normal speed under a "· Fast" pill with nothing saying so.
+  let fastTold = false;
+  const tellFast = (m) => {
+    if (!fastMode || fastTold || m.fast_mode_state === 'on') return;
+    fastTold = true;
+    const { lasting, text, link } = fastModeRefusal(m.fast_mode_disabled_reason, m.fast_mode_state);
+    onEvent({ type: 'notice', phase: 'done', text, ...(link ? { link } : {}) });
+    if (lasting) onEvent({ type: 'fastOff' });
+  };
   // Model provenance, two grades:
   //   'init' — the model the SDK *configured* the session with (an echo of our
   //            request; arrives instantly, good for the status bar).
@@ -724,6 +763,9 @@ export async function runPrompt({
             cacheWrite: usage.cache_creation_input_tokens || 0,
           } : null,
         });
+        // After the result, never before it: a notice closes the answer's bubble, and
+        // the cost badge is stashed on the open bubble by the event above (stream.js).
+        if (message.fast_mode_state) tellFast(message);
         // 'result' ends a TURN, not necessarily the work. With background work still
         // running we stay on the line with the input open: when it settles the CLI
         // delivers the task_notification and opens a turn by itself, ending in another
@@ -757,12 +799,7 @@ export async function runPrompt({
           // showing "· Fast", so silence would leave a badge claiming something
           // that isn't happening (a rate-limit cooldown, a model that can't do it,
           // extra usage switched off…).
-          if (fastMode && message.fast_mode_state !== 'on') {
-            onEvent({
-              type: 'notice', phase: 'done',
-              text: `Fast mode is off for this turn — ${fastModeWhy(message.fast_mode_disabled_reason, message.fast_mode_state)}.`,
-            });
-          }
+          tellFast(message);
         } else if (message.subtype === 'status' && message.status === 'compacting') {
           onEvent({ type: 'notice', phase: 'start', text: 'Compacting context…' });
         } else if (message.subtype === 'compact_boundary') {

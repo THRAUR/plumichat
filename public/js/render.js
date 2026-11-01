@@ -135,21 +135,30 @@ export function noticeIcon(done) {
     ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
     : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>';
 }
-export function fillNotice(el, text, done) {
+export function fillNotice(el, text, done, link) {
   el.innerHTML = '<span class="nico">' + noticeIcon(done) + "</span>";
   var s = document.createElement("span"); s.className = "ntext"; s.textContent = text;
+  // Only ever a link the server wrote (claude.js), and https-only all the same: this
+  // is an href built from a stream event.
+  if (link && /^https:\/\//.test(link.href || "")) {
+    var a = document.createElement("a");
+    a.href = link.href; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.textContent = link.label || link.href;
+    s.appendChild(document.createTextNode(" "));
+    s.appendChild(a);
+  }
   el.appendChild(s);
   el.classList.toggle("pending", !done);
 }
-export function addNotice(text, phase) {
+export function addNotice(text, phase, link) {
   // "done" updates the in-place "compacting…" line rather than stacking a new one.
   if (phase === "done" && compactNoticeEl) {
-    fillNotice(compactNoticeEl, text, true);
+    fillNotice(compactNoticeEl, text, true, link);
     compactNoticeEl = null; scrollDown(false); return;
   }
   var n = document.createElement("div");
   n.className = "notice";
-  fillNotice(n, text, phase !== "start");
+  fillNotice(n, text, phase !== "start", link);
   messages.appendChild(n);
   if (phase === "start") compactNoticeEl = n;
   scrollDown(false);

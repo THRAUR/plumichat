@@ -16,7 +16,7 @@ import { recordTurn, spendGate } from './spend.js';
 import { sendToUser } from './push.js';
 import { turnMemory, captureTurn } from './memory.js';
 import { turnImage } from './imagegen.js';
-import { compactAtFor } from './users.js';
+import { compactAtFor, updateUserDefaults } from './users.js';
 
 const runs = new Map();          // key (sessionId | tempId) -> Run
 const asks = new Map();          // askId -> { run, resolve }
@@ -79,7 +79,9 @@ function maybePushTitle(run) {
 // the list so the cost/usage badge survives a reattach, and 'waiting'/'task' so
 // the agents tray rebuilds itself instead of coming back empty. session / model /
 // title / ask / ended / done are replayed explicitly by subscribe() instead.
-const BUFFERED = new Set(['text', 'thinking', 'tool', 'notice', 'result', 'waiting', 'task', 'limits', 'context']);
+// 'fastOff' stays out on purpose: replayed to a late attacher, it would turn off a
+// switch the person has since turned back on. The account already holds the answer.
+const BUFFERED =new Set(['text', 'thinking', 'tool', 'notice', 'result', 'waiting', 'task', 'limits', 'context']);
 // Deltas arrive one per token, so both streaming kinds are coalesced into the
 // previous entry of the same kind — one entry per paragraph-run, not per token.
 const COALESCED = new Set(['text', 'thinking']);
@@ -375,7 +377,16 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     );
   });
 
-  const onEvent = (event) => emit(run, event);
+  const onEvent = (event) => {
+    // The switch belongs to the account, so it is saved here rather than left to a
+    // page: the phone that asked is often locked by the time the refusal arrives. A
+    // failed save must not cost the turn its answer.
+    if (event.type === 'fastOff' && userId) {
+      try { updateUserDefaults(userId, { fastMode: false }); }
+      catch (err) { console.error('[runs] could not switch fast mode off:', err?.message || err); }
+    }
+    emit(run, event);
+  };
 
   // Members run hard-confined to their home. Their Bash is ALLOWED but wrapped
   // in an OS sandbox (makeMemberSandbox) that confines all writes to that

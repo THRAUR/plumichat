@@ -1630,7 +1630,11 @@
   letter-spacing: 0.01em;
 }
 .notice .nico { color: var(--faint); flex: none; display: grid; place-items: center; }
-.notice .ntext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Wraps, never ellipsizes. One line holds about 50 characters on a phone, and cutting
+   there turned "Fast mode is off for this turn — <the reason>" into a notice that gave
+   no reason at all, on every turn, with nothing to tap to read the rest. */
+.notice .ntext { overflow-wrap: anywhere; }
+.notice .ntext a { color: var(--accent-text); text-decoration: underline; }
 .notice.pending { color: var(--accent-text); border-color: var(--accent-line); background: var(--accent-dim); }
 .notice.pending .nico { color: var(--accent-text); animation: pulse 1.1s ease-in-out infinite; }
 
