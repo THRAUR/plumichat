@@ -8,10 +8,10 @@
    real Web Push instead of streaming into a tab nobody is looking at. */
 
 import { apiFetch, reqJSON } from './api.js';
-import { addPermissionCard, addQuestionCard, addSaveButton } from './cards.js';
+import { addPermissionCard, addQuestionCard, addSaveButton, closeAskCard } from './cards.js';
 import { updateSend } from './composer.js';
 import { registerDeliverable } from './panels/deliverables.js';
-import { input, messages, toast } from './dom.js';
+import { EMBED, input, messages, toast } from './dom.js';
 import { extractDownloadFlags, makeDownloadBox } from './exports.js';
 import { fetchSessions } from './history.js';
 import { STOP_NOTICE_ICON, THINK_CARET, THINK_ICON } from './icons.js';
@@ -22,7 +22,7 @@ import { loopForTool, pillPlumi } from './plumi.js';
 import { noteContext } from './panels/context.js';
 import { permAllowed, permMode } from './panels/perm.js';
 import { addError, addNotice, addRow, addTool, addUser, makeFileBox, mdNode, scrollDown } from './render.js';
-import { REATTACH_COOLDOWN_MS, activeSessionId, activeStreams, cur, draftFor, drafts, endingsSeen, projName, reattachTries, recentlyEnded, resetReattachTries, sessionsCache, setActiveSessionId, setCur, setViewKey, viewKey, viewToken } from './state.js';
+import { REATTACH_COOLDOWN_MS, activeSessionId, activeStreams, cur, draftFor, drafts, endedRun, endingsSeen, projName, reattachTries, recentlyEnded, resetReattachTries, sessionsCache, setActiveSessionId, setCur, setRunningElsewhere, setViewKey, viewKey, viewToken } from './state.js';
 import { addTurnUsage, clearTasks, emitTasksChanged, limitResetMs, noteTask, rekeyTaskState, setLimits, thinkingState, waitingState } from './tasks.js';
 import { flushQueued, renderTaskTray, rekeyQueue } from './tray.js';
 
@@ -79,6 +79,9 @@ export function addCostBadge(bubble, ev) {
   if (!u && !hasCost) return; // nothing worth showing
   var inTok = u ? (u.input + u.cacheRead + u.cacheWrite) : 0;
   var outTok = u ? u.output : 0;
+  // An answer cut off by a message sent mid-way reports zero of everything: what it used
+  // is counted in the reply's result. A badge of zeros would read as a free answer.
+  if (!inTok && !outTok && !ev.costUsd) return;
   var parts = [];
   if (u) parts.push("↑" + fmtTokens(inTok) + " ↓" + fmtTokens(outTok));
   if (hasCost) parts.push("$" + (ev.costUsd < 0.01 ? ev.costUsd.toFixed(4) : ev.costUsd.toFixed(3)));
@@ -302,6 +305,14 @@ export function send(text, atts, onFail) {
   });
 }
 
+// Follow a turn the server just started for a queued message. A turn that ended
+// moments ago is still inside the re-attach cooldown, which would quietly refuse this.
+export function followStartedTurn(key) {
+  delete recentlyEnded[key];
+  delete endingsSeen[key];
+  return syncRuns();
+}
+
 // Discard an interrupted partial answer (see markInterrupted) — the caller is
 // about to paint the authoritative version.
 export function dropInterrupted() {
@@ -319,6 +330,19 @@ export function undoEcho(stream) {
   stream.echo = null;
 }
 
+// The row showing this message, if it is on screen already. Only a replay asks. A turn's
+// first message can only be the last bubble; one sent mid-turn can have others after it.
+// A repeat of an earlier message reads as found, which at worst costs a few rows until
+// the turn ends and the chat reloads from disk.
+function shownAlready(text, first) {
+  var rows = messages.querySelectorAll(".row.user"), t = String(text || "").trim();
+  var oldest = Math.max(0, rows.length - (first ? 1 : 6));
+  for (var i = rows.length - 1; i >= oldest; i--) {
+    if (rows[i].textContent.indexOf(t) >= 0) return rows[i];
+  }
+  return null;
+}
+
 // Reattach to a turn on the server (after a refresh, an iOS suspend, or a turn
 // started in another tab). No user message is echoed — this just resumes
 // following an existing run.
@@ -328,9 +352,15 @@ export function undoEcho(stream) {
 // token to a dead value and let the replayed transcript render nowhere. Without
 // that, replaying a finished turn on top of the transcript we just loaded from
 // disk would paint the whole thing twice for a second.
-export function attachRun(project, key, quiet) {
+//
+// `runId` says which run this is. The cooldown only applies to the run whose ending we
+// already have: it used to turn away the next queued message's turn as well, which
+// starts in the same instant under the same key, so that turn ran with nothing on
+// screen and the composer offering to send into a conversation that was busy.
+export function attachRun(project, key, quiet, runId) {
   if (activeStreams[key]) return;            // already following it
-  if (recentlyEnded[key] && Date.now() - recentlyEnded[key] < REATTACH_COOLDOWN_MS) return;
+  if (recentlyEnded[key] && Date.now() - recentlyEnded[key] < REATTACH_COOLDOWN_MS
+      && (!runId || runId === endedRun[key])) return;
   var onScreen = (key === viewKey);
   var stream = {
     convKey: key, token: (onScreen && !quiet) ? viewToken : -1,
@@ -362,16 +392,27 @@ export function attachRun(project, key, quiet) {
 export function syncRuns() {
   return reqJSON("/api/runs").then(function (d) {
     var runs = (d && d.runs) || [];
+    var elsewhere = {};
     runs.forEach(function (run) {
       if (!run.sessionId) return;
+      // A pane of a split view follows its own conversation and no other. Every pane
+      // following every turn meant four panes held sixteen streams, and a browser on a
+      // plain http:// address allows six connections to a site: with three panes running
+      // nothing else got through, not even Stop, until a turn ended. It also lit every
+      // pane's busy dot for a turn in just one of them.
+      if (EMBED && run.sessionId !== viewKey) {
+        if (run.status === "running") elsewhere[run.sessionId] = true;
+        return;
+      }
       if (run.status === "running") {
         delete endingsSeen[run.sessionId];   // a live turn — a new ending is coming
-        attachRun(run.project, run.sessionId);       // no-op if already attached
+        attachRun(run.project, run.sessionId, false, run.id); // no-op if already attached
       } else if (!endingsSeen[run.sessionId]) {
         endingsSeen[run.sessionId] = true;   // claim it before the async attach
         attachRun(run.project, run.sessionId, true); // collect the ending quietly
       }
     });
+    setRunningElsewhere(elsewhere);
     if (libraryVisible()) renderLibrary(drawerSearchInput.value);
   }).catch(function () { /* offline / signed out — apiFetch already handled 401 */ });
 }
@@ -429,6 +470,9 @@ export function wakeSync() {
 // there) — several modules read it, and one of them reads it during start-up.
 export let REATTACH_MAX = 3;
 export function reattachAfterDrop(project, key, err) {
+  // A pane that has moved on from this conversation has no reason to get it back, and
+  // syncRuns would not attach it, so retrying could only end in a false alarm.
+  if (EMBED && key !== viewKey) { delete reattachTries[key]; updateSend(); return; }
   var n = (reattachTries[key] || 0) + 1;
   reattachTries[key] = n;
   if (n > REATTACH_MAX) {
@@ -507,6 +551,7 @@ export function consumeStream(stream, project, responsePromise) {
     delete reattachTries[key];
     recentlyEnded[key] = Date.now();
     var ended = stream.ended;
+    endedRun[key] = ended && ended.runId;
     var onView = (key === viewKey);
     // Stopped/errored has to be decided FIRST. The old code checked "was this
     // stream attached?" first and took the reload-from-disk branch for every
@@ -743,7 +788,32 @@ export function consumeStream(stream, project, responsePromise) {
       }
       return;
     }
+    // The engine took a permission or question card back: a message sent now cancels
+    // whatever it finds open. Marked answered here, so coming back to this conversation
+    // does not re-render a card nobody is listening to any more.
+    if (ev.type === "askClosed") {
+      (stream.asks || []).forEach(function (item) { if (item.ev.id === ev.id) item.answered = true; });
+      updatePaneState();
+      if (live()) { closeAskCard(ev.id); setStatus("working", "Working…", "ponder"); }
+      return;
+    }
     if (!live()) return; // backgrounded conversation — never render into the current view
+    // A queued message went into the running turn. It closes the answer being written
+    // either way, so a replay keeps the two answers apart; a replay only paints the
+    // bubble if this page does not have it yet (runs.js subscribe says why).
+    if (ev.type === "sentNow") {
+      finalizeAssistant();
+      var seen = ev.replay ? shownAlready(ev.text, ev.first) : null;
+      if (!seen) { addUser(ev.text || "", ev.atts, true); scrollDown(true); }
+      else if (!ev.first) {
+        // A reopened page: the session log painted this message, and what the replay
+        // has painted since came before it, so it is on screen twice. Whatever is below
+        // the message is about to replay too, so it all goes.
+        while (seen.nextSibling) seen.parentNode.removeChild(seen.nextSibling);
+      }
+      setStatus("working", "Working…", "ponder");
+      return;
+    }
     if (ev.type === "thinking") {
       addThinking(ev.text);
       setStatus("working", (currentTurnModel ? friendlyModel(currentTurnModel) + " · " : "") + "thinking…", "ponder");

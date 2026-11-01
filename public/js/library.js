@@ -12,7 +12,7 @@ import { fetchSessions, loadSessionMessages, sessionsFailed } from './history.js
 import { ARCHIVE_SVG, PIN_SVG, UNARCHIVE_SVG } from './icons.js';
 import { pickerLabel, renderMenu } from './projects.js';
 import { clearMessages, renderMessages } from './render.js';
-import { activeSessionId, activeStreams, draftFor, drafts, dropIdleDrafts, freshViewKey, projName, projects, sessionsCache, setActiveSessionId, setCurrent, setViewKey, startDraft, viewKey, viewToken } from './state.js';
+import { activeSessionId, activeStreams, draftFor, drafts, dropIdleDrafts, freshViewKey, projName, projects, runningElsewhere, sessionsCache, setActiveSessionId, setCurrent, setViewKey, startDraft, viewKey, viewToken } from './state.js';
 import { friendlyModel, setStatus, setTurnModelInfo, syncRuns } from './stream.js';
 import { waitingState } from './tasks.js';
 import { flushQueued, renderTaskTray, refreshQueue } from './tray.js';
@@ -184,7 +184,7 @@ export function renderLibrary(filter) {
       var isActive = p.name === projName() && (c._draft ? c.id === viewKey : c.id === activeSessionId);
       btn.className = "conv"
         + (isActive ? " active" : "")
-        + (activeStreams[c.id] ? " streaming" : "")
+        + (activeStreams[c.id] || runningElsewhere[c.id] ? " streaming" : "")
         + (c._draft ? " draft" : "");
       btn.type = "button";
       var dot = document.createElement("span"); dot.className = "cdot";
@@ -513,6 +513,9 @@ export let drawerTimer = null;
 export function settleDrawer() { drawer.classList.add("settled"); drawerOverlay.classList.add("settled"); }
 export function openDrawer() {
   refreshLibrary();
+  // A pane does not follow the other panes' turns, so it asks when it is about to show
+  // them. The answer repaints the drawer if it is still open.
+  if (EMBED) syncRuns();
   clearTimeout(drawerTimer);
   drawer.classList.remove("settled"); drawerOverlay.classList.remove("settled");
   void drawer.offsetWidth;

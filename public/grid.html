@@ -1144,6 +1144,25 @@
       if (changed) { saveBoard(); reflectBar(); }
     });
 
+    /* ---------- One queue stream for the whole board ----------
+       Each pane used to hold its own, on top of the stream of its running turn. A browser
+       on a plain http:// address allows six connections to a site, so three running panes
+       used every one of them and nothing else got through, not even Stop, until a turn
+       ended. This way a full board of four holds five and keeps one free. Over HTTPS
+       (HTTP/2) there is no such limit, and one stream is still less work for the server. */
+    (function () {
+      if (typeof EventSource === "undefined") return;
+      var es;
+      try { es = new EventSource("/api/queue/stream"); } catch (e) { return; }
+      es.onmessage = function () {
+        Array.prototype.forEach.call(document.querySelectorAll("iframe"), function (f) {
+          try { f.contentWindow.postMessage({ type: "plumi:queue" }, ORIGIN); } catch (e) {}
+        });
+      };
+      // EventSource reconnects on its own (the server sends `retry:`).
+      es.onerror = function () {};
+    })();
+
     /* ---------- Boot ---------- */
     Promise.all([
       api("/api/projects").then(function (res) { projects = (res.ok && res.d && res.d.projects) || []; }),

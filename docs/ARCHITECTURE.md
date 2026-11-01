@@ -90,8 +90,9 @@ Four things worth knowing if you touch it:
   so it costs no round-trip. The call used to be impossible at `result` — the string
   prompt had already closed the child's stdin — and the free path stayed after that
   changed.
-- Not built yet: mid-turn interrupt, live model switching, and queued input. They
-  need a query *during* the turn, which the open input stream now provides.
+- Not built yet: mid-turn interrupt and live model switching. They need a query
+  *during* the turn, which the open input stream now provides. A queued message
+  already uses that stream: Send now pushes it in with `priority: 'now'`.
 
 ---
 

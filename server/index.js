@@ -13,10 +13,11 @@ import { createRequire } from 'node:module';
 import { exec, execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
 import yazl from 'yazl';
-import { startRun, subscribe, respondAsk, askRun, stopRun, listRuns, getRun } from './runs.js';
+import { startRun, subscribe, respondAsk, askRun, stopRun, listRuns, getRun, sendQueuedNow } from './runs.js';
 import {
   listFor as listQueue, enqueue as enqueueMsg, editQueued,
   setEditing as setQueueEditing, removeQueued, onQueueChange, sweepQueue,
+  takeQueued, requeueFront,
 } from './queue.js';
 import { limitsSnapshot } from './claude.js';   // last usage-window the engine saw
 import { shipEngineUpdate, shipStatus, lastWatchdogOutcome } from './engine-ship.js';
@@ -949,6 +950,31 @@ app.patch('/api/queue/:id', requireAuth, (req, res) => {
 
 app.delete('/api/queue/:id', requireAuth, (req, res) => ok(res, () => removeQueued(req.user, req.params.id) || {}));
 
+// Send one queued message now instead of when the turn ends. As with queueing it, the
+// body has no say in anything: the row is the caller's own or it is a 404, the text
+// and turn parameters are the row's, and the turn it joins is checked the same way
+// queueing checks it. Every failure after the take puts the row back.
+app.post('/api/queue/:id/send-now', requireAuth, (req, res) => {
+  let row;
+  try {
+    row = takeQueued(req.user, req.params.id);
+  } catch (err) {
+    return res.status(409).json({ error: err.message });
+  }
+  if (!row) return res.status(404).json({ error: 'That message has already gone out.' });
+  const run = getRun(row.key);
+  if (run && run.userId && req.user.id && run.userId !== req.user.id) {
+    requeueFront(row);
+    return res.status(403).json({ error: 'that turn belongs to someone else' });
+  }
+  try {
+    res.json(sendQueuedNow(row));
+  } catch (err) {
+    requeueFront(row);
+    res.status(startRefusalStatus(err)).json({ error: err.message });
+  }
+});
+
 app.get('/api/queue/stream', requireAuth, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -1262,23 +1288,24 @@ app.post('/api/chat', requireAuth, (req, res) => {
   try {
     run = startRun({ project, cwd, prompt: finalPrompt, sessionId, model: effModel, effort, fastMode, context1m, permissionMode: effMode, confineHome, userId: req.user.id, memoryText: String(prompt || '') });
   } catch (err) {
-    // startRun throws three things, and they mean different things to a client:
-    // the duplicate-conversation guard ("a turn is already running here") stays a
-    // 409, while the H6 resource caps are a temporary "the box is full" → 429, so
-    // the UI can offer "try again in a moment" instead of "you did something wrong".
-    // Matched on the message because runs.js throws plain Errors — keep these two
-    // prefixes in step with the throws in startRun().
-    // …and a spent workspace budget is a third thing again: not "you did something
-    // wrong" and not "try again in a moment", but "blocked until someone changes a
-    // setting". 403 says that; 429 would invite a pointless retry.
-    if (/^The workspace budget/.test(err.message || '')) {
-      return res.status(403).json({ error: err.message });
-    }
-    const capped = /^(You already have|The box is busy with)/.test(err.message || '');
-    return res.status(capped ? 429 : 409).json({ error: err.message });
+    return res.status(startRefusalStatus(err)).json({ error: err.message });
   }
   streamRun(res, run.key);
 });
+
+// startRun throws three things, and they mean different things to a client:
+// the duplicate-conversation guard ("a turn is already running here") stays a
+// 409, while the H6 resource caps are a temporary "the box is full" → 429, so
+// the UI can offer "try again in a moment" instead of "you did something wrong".
+// Matched on the message because runs.js throws plain Errors — keep these two
+// prefixes in step with the throws in startRun().
+// …and a spent workspace budget is a third thing again: not "you did something
+// wrong" and not "try again in a moment", but "blocked until someone changes a
+// setting". 403 says that; 429 would invite a pointless retry.
+function startRefusalStatus(err) {
+  if (/^The workspace budget/.test(err.message || '')) return 403;
+  return /^(You already have|The box is busy with)/.test(err.message || '') ? 429 : 409;
+}
 
 app.get('/api/chat/attach', requireAuth, (req, res) => {
   const { key } = req.query;

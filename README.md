@@ -177,9 +177,10 @@ in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 A README that only describes the good parts is how the last one went stale.
 
-- **One SDK process per turn, not per conversation.** Mid-turn interrupt, queued
-  messages and live model switching need a query *during* a turn, so they are not
-  built. The *between*-turn controls (context ring, Compact, Rewind, Fork) work via
+- **One SDK process per turn, not per conversation.** Mid-turn interrupt and live
+  model switching need a query *during* a turn, so they are not built. (A queued
+  message can already join the running turn, through the open input stream: see
+  "Send now" in `server/runs.js`.) The *between*-turn controls (context ring, Compact, Rewind, Fork) work via
   a control-only query that resumes the transcript without running a turn.
 - **Runs are in-memory.** A restart drops in-flight turns; the SDK's session log
   keeps the finished ones.

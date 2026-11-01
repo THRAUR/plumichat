@@ -49,6 +49,18 @@ that was asleep can still collect the result.
 and the message is *parked* rather than refused, and it goes out the moment the turn
 ends. Parked messages appear as chips above the composer.
 
+**Send now, when it can't wait.** Each chip has a *Send now* button that puts the
+message into the conversation straight away, and Claude reads it and replies. What
+happens to the work in progress depends on what it was:
+
+- An answer being written stops where it is.
+- A running command moves to the background and keeps going, which takes a few seconds
+  at most. Claude reports on it when it finishes.
+- An open permission card is cancelled, and the command it was asking about does not
+  run.
+
+A message you are still editing has to be finished first.
+
 **The queue lives on the server, not in the tab.** Park a message on your laptop and
 it is there on your phone; hard-refresh or close the window by accident and it is
 still there when you come back. More importantly the work still *happens*: when a
@@ -113,7 +125,13 @@ terminal sees — cross-device by construction, with nothing to sync.
 - Grouped by project.
 
 **Split view** (*Workspace → Split view*) puts several conversations side by side in
-saved layouts. Useful on a desktop; each pane is an independent document.
+saved layouts. Useful on a desktop; each pane is an independent document, and all
+four can run a turn at once. Each turn is its own Claude Code process, so check your
+free memory before filling a board (`PLUMI_MAX_RUNS_PER_USER` sets the limit). On a
+plain `http://` address a browser allows six connections per site and every running
+pane holds one, so a full board plus another open tab can run out, and then everything
+waits, Stop included. HTTPS has no such limit, and `tailscale serve` gives you that for
+free: see [INSTALL](INSTALL.md).
 
 ---
 

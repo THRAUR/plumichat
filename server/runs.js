@@ -7,8 +7,10 @@
 // In-memory only (single-user personal tool): runs reset on process restart,
 // which is fine — finished turns are already persisted to the SDK's session log.
 import { randomUUID } from 'node:crypto';
+import { basename } from 'node:path';
 import { runPrompt, makeMemberPolicy, makeMemberSandbox, memberTurnsSupported } from './claude.js';
 import { claimNext, requeueFront } from './queue.js';
+import { lastCostTotal } from './history.js';
 import { platformLabel } from './platform.js';
 import { generateTitle, setAutoTitle, getAutoTitle, sdkTitle } from './titles.js';
 import { touchContext } from './context.js';
@@ -40,7 +42,10 @@ const CLEANUP_MS = 10 * 60 * 1000;
 // Concurrency caps (audit H6). Each turn is a ~340 MB CLI process on a 5.9 GB
 // box, and nothing used to count them: owner + members + the ops runner could all
 // pile on until the machine swapped and the remote lifeline went with it.
-const MAX_RUNS_PER_USER = Math.max(1, Number(process.env.PLUMI_MAX_RUNS_PER_USER) || 2);
+// Four per person because split view has four panes, each its own conversation: at
+// two, the third pane of a three-pane board refused to start. The box cap is still
+// the guard for the machine, and at five it leaves someone else room for a turn.
+const MAX_RUNS_PER_USER = Math.max(1, Number(process.env.PLUMI_MAX_RUNS_PER_USER) || 4);
 const MAX_RUNS = Math.max(1, Number(process.env.PLUMI_MAX_RUNS) || 5);
 
 // How long a parked permission/question prompt waits for a human. It used to wait
@@ -81,7 +86,7 @@ function maybePushTitle(run) {
 // title / ask / ended / done are replayed explicitly by subscribe() instead.
 // 'fastOff' stays out on purpose: replayed to a late attacher, it would turn off a
 // switch the person has since turned back on. The account already holds the answer.
-const BUFFERED =new Set(['text', 'thinking', 'tool', 'notice', 'result', 'waiting', 'task', 'limits', 'context']);
+const BUFFERED =new Set(['text', 'thinking', 'tool', 'notice', 'result', 'waiting', 'task', 'limits', 'context', 'sentNow']);
 // Deltas arrive one per token, so both streaming kinds are coalesced into the
 // previous entry of the same kind — one entry per paragraph-run, not per token.
 const COALESCED = new Set(['text', 'thinking']);
@@ -101,7 +106,9 @@ function replyText(run) {
   const parts = [];
   for (let i = run.transcript.length - 1; i >= 0; i--) {
     const e = run.transcript[i];
-    if (e.type === 'tool' || e.type === 'task') break;
+    // A message sent mid-turn ends the answer too: what came before it was cut off
+    // to read it, and what came after is the reply.
+    if (e.type === 'tool' || e.type === 'task' || e.type === 'sentNow') break;
     if (e.type === 'text' && e.text) parts.unshift(e.text);
   }
   return parts.join('');
@@ -322,6 +329,8 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     startedAt: Date.now(),
     endedAt: null,              // set in the finally block; reported by listRuns()
     cleanupTimer: null,
+    pushInput: null,            // hands the running turn a message; see sendQueuedNow
+    sentNow: [],                // what was sent into this turn while it ran, for memory
   };
   runs.set(run.key, run);
 
@@ -363,6 +372,20 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     });
     run.openAsks.set(askId, ev);
     emit(run, ev);
+    // The engine can take the request back: a message sent now cancels the card it
+    // finds open (measured on CLI 2.1.316). Nothing is listening for an answer after
+    // that, so the card has to stop offering one. resolve(null) is a refusal in every
+    // policy, so this can only ever fail closed.
+    const taken = () => {
+      const a = asks.get(askId);
+      if (!a) return;
+      emit(run, { type: 'askClosed', id: askId });
+      a.resolve(null);
+    };
+    if (request.signal) {
+      if (request.signal.aborted) taken();
+      else request.signal.addEventListener('abort', taken, { once: true });
+    }
     // The turn is now blocked on a human, and it gives up after ASK_TIMEOUT_MS —
     // so this is the other moment worth waking a phone for, not just the ending.
     pushIfAway(
@@ -416,9 +439,11 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
   (async () => {
     let outcome = null;
     try {
+      const costBase = sessionId ? await lastCostTotal(cwd, sessionId) : 0;
       outcome = await runPrompt({
         prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
         onEvent, askUser, allowAlways, abortController: run.abort, canUseTool, sandbox, memory, imagegen, compactAt,
+        onInput: (push) => { run.pushInput = push; }, costBase,
       });
     } catch (err) {
       if (!run.errorMsg) run.errorMsg = err?.message || String(err);
@@ -430,6 +455,7 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
       // reporting it as a bare "Stopped" reads like they did it themselves. Their own
       // Stop still wins if both happened.
       if (outcome && outcome.stalled) run.stalled = true;
+      run.pushInput = null;
       // runPrompt swallows SDK errors (emits {type:'error'}) and is silent on
       // abort, so derive the final status here.
       run.status = run.abort.signal.aborted
@@ -475,12 +501,12 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
       if (memory && run.status === 'done') {
         captureTurn({
           tag: memory.tag, sessionId: run.sessionId, project,
-          prompt: memoryText ?? prompt, reply: replyText(run),
+          prompt: [memoryText ?? prompt, ...run.sentNow].join('\n\n'), reply: replyText(run),
         });
       }
       // Kept whole so subscribe() replays the SAME ending a live subscriber got,
       // `stalled` flag and all, instead of rebuilding a lesser copy of it.
-      run.endedEv = { type: 'ended', status: run.status, reason: run.reason, stalled: !!run.stalled };
+      run.endedEv = { type: 'ended', status: run.status, reason: run.reason, stalled: !!run.stalled, runId: run.id };
       emit(run, run.endedEv);
       emit(run, { type: 'done' });
       // "Ping me when done", for a phone that stopped listening. Emitted after
@@ -522,13 +548,7 @@ function drainQueue(run) {
   const next = claimNext(run.sessionId || run.key) || (run.sessionId ? claimNext(run.key) : null);
   if (!next) return;
   try {
-    startRun({
-      ...next.spec,
-      // The conversation this turn actually landed in wins over whatever the spec
-      // captured: a first turn starts with sessionId null and acquires one.
-      sessionId: run.sessionId || next.spec.sessionId || null,
-      prompt: next.prompt,
-    });
+    startQueued(next, run.sessionId);
   } catch (err) {
     // startRun throws for the caps and the spend gate. Put it back at the FRONT
     // rather than dropping it: it was claimed atomically, so nothing else has it,
@@ -536,6 +556,61 @@ function drainQueue(run) {
     console.error('[queue] could not start queued message:', err?.message || err);
     requeueFront(next);
   }
+}
+
+const queuedAtts = (row) => (row.paths || []).map((p) => ({ kind: 'server', name: basename(p) }));
+
+// A queued message starting its own turn, on the parameters captured when it was
+// queued. The conversation this turn actually landed in wins over whatever the spec
+// captured: a first turn starts with sessionId null and acquires one. The event is what
+// puts the message on screen: a page watching this conversation never typed it into a
+// bubble, it only had a chip.
+function startQueued(row, sessionId) {
+  const run = startRun({
+    ...row.spec,
+    sessionId: sessionId || row.spec.sessionId || null,
+    prompt: row.prompt,
+  });
+  emit(run, { type: 'sentNow', first: true, text: row.wire, atts: queuedAtts(row) });
+  return run;
+}
+
+// How long the bubble of a message sent mid-turn waits before it goes out. The engine
+// stops writing as soon as it reads the message, but what it wrote just before that
+// is still on its way here, and without the wait those last few words land UNDER the
+// bubble, as the start of the reply. A timer and not a signal because the failure is
+// cosmetic and the alternative is holding back text that might never be cut off.
+const SENT_NOW_HOLD_MS = 300;
+
+// Put a queued message into the conversation NOW, instead of when the turn ends. The
+// row has already been taken out of the queue, so every path here either delivers it
+// or puts it back. Says how it went out:
+//   'joined'  - the running turn has it, and reads it within a few seconds;
+//   'next'    - that turn has already closed its input and is exiting, so the row is
+//               back in the queue and the drain sends it a moment from now;
+//   'started' - nothing is running (a stopped or failed turn leaves its queue waiting
+//               on purpose), so this is the person saying go, and it starts a turn.
+// Throws what startRun throws, and the caller puts the row back.
+//
+// Nothing about the turn changes: the running run keeps its own policy, sandbox and
+// permission mode, and this only adds a message to it, so a member's confinement is
+// exactly what it was. The budget is checked because startRun, which normally does
+// it, is not involved when the message joins a turn.
+export function sendQueuedNow(row) {
+  const run = runs.get(row.key);
+  if (!run || run.status !== 'running') {
+    startQueued(row, String(row.key).startsWith('run:') ? null : row.key);
+    return { how: 'started' };
+  }
+  const budget = spendGate();
+  if (budget) throw new Error(budget);
+  if (!run.pushInput || !run.pushInput(row.prompt)) {
+    requeueFront(row);
+    return { how: 'next' };
+  }
+  run.sentNow.push(row.wire || row.prompt);
+  setTimeout(() => emit(run, { type: 'sentNow', text: row.wire, atts: queuedAtts(row) }), SENT_NOW_HOLD_MS);
+  return { how: 'joined' };
 }
 
 // Attach a sender to a run. Brings a fresh/refreshed client up to speed (session
@@ -551,7 +626,11 @@ export function subscribe(key, send) {
   // Replay everything streamed so far this turn (text/tools/notices), THEN the
   // open prompts — so a reattaching client rebuilds the in-flight turn in order
   // instead of seeing only what arrives after it connects.
-  for (const ev of run.transcript) send(ev);
+  // A sent-now message is marked as a replay, because whoever is replaying may already
+  // have it: a reopened page painted it from the session log, and a phone waking up
+  // never took it off the screen. A page that followed a queued turn as it started does
+  // not, so the client decides by looking.
+  for (const ev of run.transcript) send(ev.type === 'sentNow' ? { ...ev, replay: true } : ev);
   for (const ev of run.openAsks.values()) send(ev);
 
   if (run.status !== 'running') {

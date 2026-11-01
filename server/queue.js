@@ -197,6 +197,25 @@ export function claimNext(key) {
   return claimed;
 }
 
+// Take one particular message out, for "send it now". Atomic for the same reason as
+// claimNext, so a second tap or the drain cannot send it twice. A message held open
+// in somebody's editor stays put: sending a half-written message would be worse than
+// not sending, whichever way it was asked for.
+export function takeQueued(user, id) {
+  const uid = String((user && user.id) || 'owner');
+  let taken = null, held = false;
+  update(COLLECTION, (db) => {
+    const i = db.findIndex((r) => r.id === id && r.userId === uid);
+    if (i < 0) return db;
+    if (isHeld(db[i])) { held = true; return db; }
+    taken = db.splice(i, 1)[0];
+    return db;
+  }, []);
+  if (held) throw new Error('That message is being edited. Finish editing it first.');
+  if (taken) changed(uid, taken.key);
+  return taken;
+}
+
 // Put a claimed row back. Used when startRun refuses (a cap, the spend gate):
 // the row was removed atomically so nothing else holds it, and dropping it would
 // silently lose work the person is expecting to happen. Its original `at` is kept,

@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { PLUMI_SYSTEM_PROMPT, PLUMI_IMAGE_PROMPT } from './system-prompt.js';
 import { WORKSPACES_ROOT } from './sandbox.js';
@@ -172,13 +173,13 @@ function craftAnswer(payload) {
 // resolves once the human responds over the side channel; `allowAlways` is a
 // per-conversation Set of tool names the user chose to stop being asked about.
 function makeCanUseTool({ askUser, allowAlways }) {
-  return async (toolName, input) => {
+  return async (toolName, input, opts) => {
     // Claude is asking the human a question. There is no interactive backend in
     // headless mode (allowing the tool throws a ZodError requiring updatedInput),
     // so we present the question ourselves and feed the answer back as the tool
     // result via a deny message — Claude reads it as the answer (verified).
     if (toolName === 'AskUserQuestion') {
-      const ans = await askUser({ kind: 'question', tool: toolName, input });
+      const ans = await askUser({ kind: 'question', tool: toolName, input, signal: opts?.signal });
       return { behavior: 'deny', message: craftAnswer(ans) };
     }
 
@@ -189,7 +190,7 @@ function makeCanUseTool({ askUser, allowAlways }) {
     if (allowAlways && allowAlways.has(toolName)) return { behavior: 'allow', updatedInput: input };
 
     // Everything else needs the human's say-so.
-    const dec = await askUser({ kind: 'permission', tool: toolName, input });
+    const dec = await askUser({ kind: 'permission', tool: toolName, input, signal: opts?.signal });
     if (dec && dec.allow) {
       if (dec.always && allowAlways) allowAlways.add(toolName);
       return { behavior: 'allow', updatedInput: input };
@@ -269,9 +270,9 @@ export function makeMemberPolicy({ home, askUser, allowAlways, sandboxed }) {
     const rel = path.relative(home, abs);
     return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
   };
-  const promptThenAllow = async (toolName, input) => {
+  const promptThenAllow = async (toolName, input, opts) => {
     if (allowAlways && allowAlways.has(toolName)) return { behavior: 'allow', updatedInput: input };
-    const dec = await askUser({ kind: 'permission', tool: toolName, input });
+    const dec = await askUser({ kind: 'permission', tool: toolName, input, signal: opts?.signal });
     if (dec && dec.allow) {
       if (dec.always && allowAlways) allowAlways.add(toolName);
       return { behavior: 'allow', updatedInput: input };
@@ -282,9 +283,9 @@ export function makeMemberPolicy({ home, askUser, allowAlways, sandboxed }) {
         `The user denied permission to use ${toolName}. Do not retry it; explain what you wanted to do and ask how they would like to proceed.`,
     };
   };
-  return async (toolName, input) => {
+  return async (toolName, input, opts) => {
     if (toolName === 'AskUserQuestion') {
-      const ans = await askUser({ kind: 'question', tool: toolName, input });
+      const ans = await askUser({ kind: 'question', tool: toolName, input, signal: opts?.signal });
       return { behavior: 'deny', message: craftAnswer(ans) };
     }
     if (SAFE_TOOLS.has(toolName)) return { behavior: 'allow', updatedInput: input };
@@ -308,7 +309,7 @@ export function makeMemberPolicy({ home, askUser, allowAlways, sandboxed }) {
       if (sandboxed) return { behavior: 'allow', updatedInput: input };
       return { behavior: 'deny', message: 'Shell commands are disabled for member accounts (a shell can escape the per-user sandbox). Ask me to create or edit files directly instead — I can do that inside your folder.' };
     }
-    return promptThenAllow(toolName, input);
+    return promptThenAllow(toolName, input, opts);
   };
 }
 
@@ -429,7 +430,7 @@ async function has1mVariant(id) {
 //        A 'notice' may also carry link: { href, label } — somewhere to go about what it says.
 export async function runPrompt({
   prompt, cwd, sessionId, model, effort, fastMode, context1m, permissionMode,
-  onEvent, askUser, allowAlways, abortController, canUseTool, sandbox, memory, imagegen, compactAt,
+  onEvent, askUser, allowAlways, abortController, canUseTool, sandbox, memory, imagegen, compactAt, onInput, costBase,
 }) {
   // Capture the CLI subprocess's stderr. The SDK collapses a non-zero exit into a
   // generic "exited with code N" and discards the child's stderr — which is where
@@ -560,20 +561,37 @@ export async function runPrompt({
   // done" kept turning into a command stopped half-way and a person prompting again
   // hours later. Background COMMANDS, not subagents, were the common case.
   //
-  // The stream yields the one message and then waits until we close it, which we do
+  // The stream yields the first message and then waits until we close it, which we do
   // the moment nothing is left running (endInput). Closing it lets the CLI finish what
   // it already has queued and exit, and that ends the loop below by itself — so the
   // loop is DRAINED, never broken out of: a notification that landed just before the
   // last result gets a short turn of its own, and breaking would cut its text off.
   // `session_id` is required by the type and ignored on input; the verified probe
   // sent it empty, and so does this.
-  let inputOpen = true, releaseInput = null;
-  const inputReleased = new Promise((resolve) => { releaseInput = resolve; });
-  const endInput = () => { if (inputOpen) { inputOpen = false; releaseInput(); } };
+  //
+  // While it waits it also takes messages sent mid-turn (pushInput below). `unread` is
+  // the ones the CLI has not said it read: it names them in user_message_uuids, and
+  // until it has, a `result` is not the end, because they get a turn of their own.
+  let inputOpen = true, wakeInput = null;
+  const inbox = [], unread = new Set();
+  const endInput = () => { if (inputOpen) { inputOpen = false; wakeInput?.(); } };
   const input = (async function* () {
     yield { type: 'user', message: { role: 'user', content: prompt }, parent_tool_use_id: null, session_id: '' };
-    await inputReleased;
+    for (;;) {
+      while (inbox.length) yield inbox.shift();
+      if (!inputOpen) return;
+      await new Promise((resolve) => { wakeInput = resolve; });
+      wakeInput = null;
+    }
   })();
+  // `total_cost_usd` on a result is the conversation's running total, not what that turn
+  // cost. It carries across results in one process AND across resumes, and every turn
+  // here is a resume (measured on CLI 2.1.316: three one-line turns in a row reported
+  // $0.00024, $0.00038 and $0.00041, and the third alone cost $0.00003). Taken at face
+  // value, the badge on a one-word reply showed what the whole chat had cost so far and
+  // the monthly meter added that up again on every turn. So this keeps the last total
+  // seen, starting from the one the engine saved (costBase), and reports the difference.
+  let costSoFar = costBase || 0;
   const q = query({ prompt: input, options });
   let knownSession = sessionId || null;
   // Reported once per turn, from whichever message says it first. Init alone is not
@@ -667,12 +685,42 @@ export async function runPrompt({
     waitTimer.unref?.();
   };
 
+  // Hand the running turn a message from the person. Both of the last two fields are
+  // needed, and each was a bug first (measured on CLI 2.1.316):
+  //   - priority 'now' is what makes it interrupt. An answer being written stops within
+  //     milliseconds, an open permission card is cancelled, and a parked turn wakes;
+  //   - origin human is what makes a running command step aside. Without it the message
+  //     sat until the command finished, 17 seconds in the test and possibly an hour in
+  //     real use. With it the command moves to the background, where the existing
+  //     waiting logic follows it, within about four seconds at worst: the CLI only
+  //     registers a command it can move three seconds after starting it.
+  // False once the input has closed, because the CLI is then on its way out.
+  const pushInput = (text) => {
+    if (!inputOpen) return false;
+    const uuid = randomUUID();
+    unread.add(uuid);
+    inbox.push({
+      type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: '',
+      uuid, priority: 'now', origin: { kind: 'human' },
+    });
+    wakeInput?.();
+    // A settle timer about to close the input must not win the race with this.
+    clearWait();
+    armWait();
+    return true;
+  };
+  if (onInput) onInput(pushInput);
+
   try {
     for await (const message of q) {
       // ANY traffic means the CLI is still alive: drop the stall timer and let the
       // message handlers below re-arm it if we're still waiting on background work.
       clearWait();
       if (stalled) break; // the valve already fired; don't start another wait
+      if (unread.size) {
+        if (message.user_message_uuid) unread.delete(message.user_message_uuid);
+        for (const id of message.user_message_uuids || []) unread.delete(id);
+      }
       // A continuation turn announces itself with a fresh `init`; model output and
       // tool traffic also mean a turn is running. Background bookkeeping does not.
       if (message.type === 'assistant' || message.type === 'stream_event' || message.type === 'user'
@@ -751,10 +799,15 @@ export async function runPrompt({
         // SDK computes it) the dollar cost — surface both so the UI can badge the
         // response. Fields are defensive: shapes vary by SDK/transport.
         const usage = message.usage || null;
+        const total = (typeof message.total_cost_usd === 'number') ? message.total_cost_usd : null;
+        // A total below the saved one means this CLI did not carry it over, so all of
+        // it is this turn's.
+        const costUsd = total === null ? null : (total >= costSoFar ? total - costSoFar : total);
+        if (total !== null) costSoFar = total;
         onEvent({
           type: 'result',
           sessionId: knownSession,
-          costUsd: (typeof message.total_cost_usd === 'number') ? message.total_cost_usd : null,
+          costUsd,
           durationMs: (typeof message.duration_ms === 'number') ? message.duration_ms : null,
           usage: usage ? {
             input: usage.input_tokens || 0,
@@ -770,7 +823,9 @@ export async function runPrompt({
         // running we stay on the line with the input open: when it settles the CLI
         // delivers the task_notification and opens a turn by itself, ending in another
         // result (the input stream above says why the input has to be open). With
-        // nothing running, close the input and let the loop drain to its end.
+        // nothing running, close the input and let the loop drain to its end. A message
+        // sent mid-turn and not read yet counts as something running: this result may
+        // be the turn it cut short, and the CLI opens another for it within milliseconds.
         //
         // No q.getContextUsage() here. It used to be impossible — a string prompt had
         // already closed the child's stdin, so the call failed with "Query closed
@@ -780,15 +835,17 @@ export async function runPrompt({
         // getContextUsage on the same session), so a finished turn updates the ring
         // without a round-trip and only the category breakdown needs context.js.
         turnActive = false;
-        if (pendingTasks() === 0) {
+        if (pendingTasks() === 0 && unread.size === 0) {
           endInput();
         } else {
           if (!waitUntil) waitUntil = Date.now() + BACKGROUND_MAX_MS;
-          onEvent({
-            type: 'waiting',
-            tasks: pendingTasks(),
-            text: `Waiting on ${pendingTasks()} background task${pendingTasks() === 1 ? '' : 's'}…`,
-          });
+          if (pendingTasks() > 0) {
+            onEvent({
+              type: 'waiting',
+              tasks: pendingTasks(),
+              text: `Waiting on ${pendingTasks()} background task${pendingTasks() === 1 ? '' : 's'}…`,
+            });
+          }
         }
       } else if (message.type === 'system') {
         // Surface auto-compaction as a lightweight notice — never as a chat

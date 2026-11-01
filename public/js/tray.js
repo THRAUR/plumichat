@@ -3,11 +3,11 @@
 
 import { renderAttachments } from './panels/attachments.js';
 import { autoGrow, updateSend } from './composer.js';
-import { $, input, toast } from './dom.js';
+import { $, EMBED, input, toast } from './dom.js';
 import { reqJSON, apiFetch } from './api.js';
 import { TRAY_CHEV } from './icons.js';
 import { activeStreams, pending, reattachTries, setPending, viewKey } from './state.js';
-import { send, stopCurrent, syncRuns, uploadOne } from './stream.js';
+import { followStartedTurn, send, stopCurrent, syncRuns, uploadOne } from './stream.js';
 import { onTasksChanged, tasksFor, waitingFor } from './tasks.js';
 import { renderUsageChip } from './usage.js';
 
@@ -191,8 +191,9 @@ export function renderTaskTray() {
      - reads come from GET /api/queue, mirrored locally only to paint from
      - every mutation is an HTTP call, and the answer is the truth
      - other devices (and the server's own draining) arrive over an SSE stream
-     - NOTHING here sends a queued message any more. runs.js drains the queue when
-       a turn ends, so the work happens whether or not a browser is watching. */
+     - Nothing here sends a queued message on its own. runs.js drains the queue when
+       a turn ends, so the work happens whether or not a browser is watching. The one
+       exception is someone tapping "Send now", and that is a request to the server too. */
 export let queuedList = $("queuedList");
 var queued = {};        // convKey -> rows from the server (mirror, never the truth)
 var staged = {};        // convKey -> rows not yet on the server (see stageOrPost)
@@ -266,7 +267,18 @@ function queuedChip(q) {
   x.setAttribute("aria-label", "Take this message back out of the queue");
   x.title = "Put it back in the composer";
   x.addEventListener("click", function () { unqueueById(q.id); });
-  chip.appendChild(tx); chip.appendChild(x);
+  chip.appendChild(tx);
+  // Not on a staged row, which has no server row to send yet (it is about a second
+  // old), and not on one being edited elsewhere, which the server would refuse.
+  if (!q.pending && !q.editing) {
+    var now = document.createElement("button");
+    now.type = "button"; now.className = "qc-now"; now.textContent = "Send now";
+    now.title = "Send it into this turn now, instead of waiting for the turn to finish";
+    now.setAttribute("aria-label", now.title);
+    now.addEventListener("click", function () { sendQueuedNowById(q.id); });
+    chip.appendChild(now);
+  }
+  chip.appendChild(x);
   return chip;
 }
 
@@ -443,6 +455,27 @@ export function unqueueById(id) {
     .catch(function () { refreshQueue(viewKey); });
 }
 
+// Send one now instead of when the turn ends. The chip goes at once because the bubble
+// follows within a moment, and a refusal repaints it from the server's list.
+export function sendQueuedNowById(id) {
+  var q = rowById(id);
+  if (!q || q.pending) return;
+  var key = viewKey;
+  queued[key] = (queued[key] || []).filter(function (r) { return r.id !== id; });
+  repaintQueued(); updateSend();
+  apiFetch("/api/queue/" + encodeURIComponent(id) + "/send-now", { method: "POST" }).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (d) {
+      if (!r.ok) throw new Error(d.error || ("Could not send that (" + r.status + ")"));
+      // Its own turn, because nothing was running. The first thing that turn replays is
+      // this message, so following it is all it takes to put the bubble up.
+      if (d.how === "started") followStartedTurn(key);
+      if (d.how === "next") toast("This turn is just finishing \u2014 it goes out next");
+    });
+  }).catch(function (e) {
+    toast(e.message || "Could not send that", true);
+  }).then(function () { return refreshQueue(key); });
+}
+
 /* ---------------------------------------------------------------- draining -- */
 
 // The server drains the queue when a turn ends (runs.js), so this no longer sends
@@ -450,6 +483,10 @@ export function unqueueById(id) {
 // three callers already say "the turn ended, deal with the queue" by calling it.
 export function flushQueued(key) {
   refreshQueue(key || viewKey);
+  // If there was a next message the server has already started it: it drains in the
+  // same tick as the ending. The queue's own ping can get here while this page still
+  // holds the old stream, so ask again now that it does not.
+  syncRuns();
 }
 
 // A short, throwaway label so another device can say WHERE a message is being
@@ -469,13 +506,23 @@ function deviceLabel() {
 // which is how a window that did not start the turn still picks it up: syncRuns()
 // attaches to whatever is now running.
 var queueES = null;
+function queueChanged() {
+  refreshQueue(viewKey);
+  syncRuns();
+}
 export function initQueueSync() {
+  // A pane of a split view hears this from the board, which holds one stream for all
+  // of its panes (grid.html says why). Opened on its own, a pane has no board.
+  if (EMBED && window.parent !== window) {
+    window.addEventListener("message", function (ev) {
+      if (ev.source !== window.parent || ev.origin !== location.origin) return;
+      if (ev.data && ev.data.type === "plumi:queue") queueChanged();
+    });
+    return;
+  }
   if (queueES || typeof EventSource === "undefined") return;
   try { queueES = new EventSource("/api/queue/stream"); } catch (e) { return; }
-  queueES.onmessage = function () {
-    refreshQueue(viewKey);
-    syncRuns();
-  };
+  queueES.onmessage = queueChanged;
   // EventSource reconnects on its own (the server sends `retry:`); nothing to do
   // here but avoid logging a reconnect as an error.
   queueES.onerror = function () { /* browser retries */ };

@@ -19,6 +19,39 @@ const TITLES = 'session-titles';
 const FLAGS = 'session-flags';
 const validId = (id) => /^[A-Za-z0-9._-]+$/.test(id);
 
+// How far back to look for the engine's saved cost. It writes the line as it exits, so
+// it is normally the last thing in the file; a CLI that crashed leaves it further up.
+const COST_TAIL_BYTES = 1024 * 1024;
+
+// The running cost the engine last saved for a conversation, which is what its next
+// process will carry on counting from (see where runPrompt reads total_cost_usd). Zero
+// when there is none: a new chat, or one too far back to find, which just means that
+// one turn is counted high.
+export async function lastCostTotal(cwd, sessionId) {
+  if (!validId(String(sessionId || ''))) return 0;
+  let fh;
+  try {
+    fh = await fs.promises.open(path.join(PROJECTS_DIR, encodeCwd(cwd), sessionId + '.jsonl'), 'r');
+    const { size } = await fh.stat();
+    const len = Math.min(size, COST_TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    await fh.read(buf, 0, len, size - len);
+    const lines = buf.toString('utf8').split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i].includes('"cost-state"')) continue;
+      try {
+        const o = JSON.parse(lines[i]);
+        if (o.type === 'cost-state') return Number(o.totalCostUSD) || 0;
+      } catch { /* the tail can start mid-line */ }
+    }
+    return 0;
+  } catch {
+    return 0;
+  } finally {
+    if (fh) await fh.close();
+  }
+}
+
 // Rename a conversation. An empty/blank title clears the override, reverting to
 // the auto-derived title. Returns the stored (trimmed) title. Scoped to the
 // caller's home: the session file must resolve inside THEIR project dir, so a
@@ -251,8 +284,22 @@ export async function getSession(projectName, sessionId, user) {
       // user bubble (it isn't something the human typed).
       if (o.isCompactSummary) { messages.push({ role: 'notice', text: 'Context compacted', at }); continue; }
       if (o.isMeta) continue; // system-injected context, not a real user turn
+      // Same for a background task reporting in, which the CLI writes as a user line
+      // with an origin and no isMeta flag (seen on 2.1.316). Without this a reopened
+      // chat showed the raw <task-notification> XML as something you had typed.
+      if (o.origin && o.origin.kind && o.origin.kind !== 'human') continue;
       const t = textOf(o.message).trim();
       if (t) messages.push({ role: 'user', text: t, at });
+    } else if (o.type === 'attachment' && o.attachment && o.attachment.type === 'queued_command') {
+      // A message sent mid-turn that joined the turn instead of getting one of its own.
+      // This is the only record of it: there is no user line, so reading user lines
+      // alone made the message vanish from the chat on reload. commandMode 'prompt' is
+      // what separates it from a task notification, which is stored the same way.
+      const a = o.attachment;
+      if (a.commandMode === 'prompt' && (!a.origin || a.origin.kind === 'human')) {
+        const t = textOf({ content: a.prompt }).trim();
+        if (t) messages.push({ role: 'user', text: t, at });
+      }
     } else if (o.type === 'assistant' && o.message && Array.isArray(o.message.content)) {
       const usage = usageOf(o.message);
       // Cost is per-TURN, not per-block: hang it (and the usage) on the first

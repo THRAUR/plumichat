@@ -38,6 +38,23 @@ export function paintAskResult(el, okText, okCls, promise) {
   });
 }
 
+// The server took this request back, so its buttons have nothing left to answer.
+export function closeAskCard(id) {
+  var cards = document.querySelectorAll(".ask-card");
+  for (var i = 0; i < cards.length; i++) {
+    var card = cards[i];
+    if (card.dataset.askId !== id) continue;
+    Array.prototype.forEach.call(card.querySelectorAll(".ask-actions"), function (el) { el.remove(); });
+    Array.prototype.forEach.call(card.querySelectorAll(".ask-opt, .ask-other"), function (el) { el.disabled = true; });
+    if (!card.querySelector(".ask-result")) {
+      var done = document.createElement("div");
+      done.className = "ask-result cancelled";
+      done.textContent = "Cancelled";
+      card.appendChild(done);
+    }
+  }
+}
+
 export function askHead(iconHtml, titleText) {
   var head = document.createElement("div"); head.className = "ask-head";
   var ic = document.createElement("span"); ic.className = "ask-ico"; ic.innerHTML = iconHtml;
@@ -50,6 +67,7 @@ export function askHead(iconHtml, titleText) {
 export function addPermissionCard(ev, onResolved) {
   var card = document.createElement("div");
   card.className = "ask-card perm enter";
+  card.dataset.askId = ev.id;
   setTimeout(function () { card.classList.remove("enter"); }, 400);
   card.appendChild(askHead(SHIELD_ICON, "Permission required"));
 
@@ -95,6 +113,7 @@ export function addPermissionCard(ev, onResolved) {
 export function addQuestionCard(ev, onResolved) {
   var card = document.createElement("div");
   card.className = "ask-card ques enter";
+  card.dataset.askId = ev.id;
   setTimeout(function () { card.classList.remove("enter"); }, 400);
   card.appendChild(askHead(QUESTION_ICON, "Claude is asking"));
 

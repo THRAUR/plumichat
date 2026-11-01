@@ -24,6 +24,11 @@ export function setViewKey(v) { viewKey = v; }
 export let viewToken = 0;
 export function bumpViewToken() { viewToken++; }
 export const activeStreams = {};
+// Split view only: turns running in this person's other panes, which this pane
+// deliberately does not follow (see syncRuns). Just enough for its drawer to keep
+// marking them as running.
+export let runningElsewhere = {};
+export function setRunningElsewhere(v) { runningElsewhere = v; }
 // Declared up here, beside activeStreams, and NOT in the re-attach code that
 // owns it: turnRunning() reads both, and renderModelMenu() calls turnRunning()
 // during start-up — long before that code runs. Back when this was one file,
@@ -46,6 +51,9 @@ export const endingsSeen = {};
 // ending we delivered in the last few seconds; starting a new turn clears it.
 export const recentlyEnded = {};
 export const REATTACH_COOLDOWN_MS = 3000;
+// Which run that ending belonged to. The guard above is about that one run, and a
+// queued message's turn is a different one under the same key.
+export const endedRun = {};
 // Client-side placeholders for brand-new conversations, KEYED by their view key
 // ("new:N" until the server assigns a session id, then re-keyed to it). Each
 // appears in the drawer the instant you start one (the pen) — before it's ever

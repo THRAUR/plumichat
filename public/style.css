@@ -1922,6 +1922,7 @@
 .ask-result { font-size: 12.5px; font-weight: 500; text-align: right; }
 .ask-result.allowed { color: var(--green); }
 .ask-result.denied { color: var(--error); }
+.ask-result.cancelled { color: var(--muted); }
 
 /* Question card */
 .ask-q { display: flex; flex-direction: column; gap: 7px; }
@@ -4874,6 +4875,22 @@ body {
   cursor: pointer; text-align: left;
 }
 .queued-chip .qc-text:hover { text-decoration: underline; }
+/* A long message must shrink inside its chip, not push the buttons out of a narrow
+   split-view pane. */
+.queued-chip { max-width: 100%; }
+.queued-chip .qc-text { min-width: 0; }
+.queued-chip .qc-now {
+  position: relative; flex: none;
+  padding: 2px 8px;
+  border: 0; border-radius: var(--r-sm);
+  background: var(--accent); color: var(--on-accent);
+  font: inherit; font-weight: 700; white-space: nowrap;
+  cursor: pointer;
+}
+/* A thumb is bigger than this pill. The hit area reaches above and below it without
+   making the chip taller, and barely sideways, because the x is right next to it and
+   sending by accident is the worse of the two mistakes. */
+.queued-chip .qc-now::after { content: ""; position: absolute; inset: -9px -2px; }
 
 .queued-edit {
   flex: 1 1 100%;

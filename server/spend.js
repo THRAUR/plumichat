@@ -2,9 +2,9 @@
 //
 // The README said it plainly: "the spend cap is stored, not enforced… nothing
 // meters spend", and `isOverSpendCap()` sat exported and uncalled. This is the
-// meter. Every finished turn already reports what it cost — claude.js forwards the
-// SDK's `total_cost_usd` on the result event — so the only things missing were
-// somewhere to add it up and somebody to ask before starting the next one.
+// meter. Every finished turn already reports what it cost — claude.js works it out
+// from the SDK's `total_cost_usd` for the result event — so the only things missing
+// were somewhere to add it up and somebody to ask before starting the next one.
 //
 // ONE HONESTY NOTE, and it belongs in every label this feeds: on a Claude
 // subscription these dollars are the SDK's own ESTIMATE of what the same tokens

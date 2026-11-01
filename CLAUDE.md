@@ -125,6 +125,44 @@ and were each a bug first:
 `/sdui` proxies the WebUI compiled into `sd-server` and is **owner-only** — it is
 another door onto the same card, and it is not member-confined.
 
+**"Send now" pushes into the open input stream, and needs `priority: 'now'` AND
+`origin: {kind: 'human'}`.** Without the origin a running command does not step aside and
+the message waits for it (17s in the test, an hour in real use). After a push, a `result`
+is not the end until the message's uuid has come back in `user_message_uuids`, because the
+turn it cut short also ends in a `result`. A message that joins a turn is saved as an
+`attachment` of type `queued_command`, not a user line, so `server/history.js` has to read
+both forms. Measured on CLI 2.1.316.
+
+**`sendQueuedNow` in `server/runs.js` takes the row atomically, and every way out that did
+not deliver it puts it back.** A closing input means it goes next, a budget refusal keeps
+the chip, and with nothing running it starts from the row's own spec, as a drain would. The
+request body has no say: the message joins a run that already has its cwd, sandbox and
+policy. An open permission card gets `canUseTool`'s abort signal, and the card has to close
+on `askClosed`, because an Allow after that does nothing.
+
+**`sentNow` is the only thing that draws a bubble for a message the browser did not send.**
+`first: true` marks the message a queued turn started with. It is buffered, so a reopened
+page replays it. A replay that lands after the history paint finds the row already there,
+and what sits under that row is the same answer a second time, so a non-first replay trims
+it (`shownAlready` in `public/js/stream.js`).
+
+**`attachRun`'s cooldown is about one RUN, not one conversation.** It stops a turn that just
+ended being attached again. A queued message's turn is a new run under the same key, and the
+cooldown refused it, so that turn ran with nothing on screen until a reload. `syncRuns`
+passes the run id, which is compared with `endedRun[key]`.
+
+**A split-view pane follows only its own conversation, and the board holds the one queue
+stream.** Every pane used to attach to every running turn and open its own
+`/api/queue/stream`. A browser allows six connections per site on plain HTTP, so three
+running panes took them all and even Stop hung. HTTP/2 hid it. `public/grid.html` now relays
+`plumi:queue` to its iframes and the drawer's busy mark comes from `runningElsewhere`. Do not
+add a stream per pane.
+
+**`total_cost_usd` is a running total for the conversation,** across results and across
+resumes. `runPrompt` reports the difference from the last one (`lastCostTotal` reads the
+figure the engine saved). Taking it as the turn's cost counted a long conversation again on
+every turn, on the reply's badge and on the monthly meter.
+
 **Never weaken member confinement.** `/api/chat` clamps members to `default`
 permission mode server-side because `acceptEdits`/`bypassPermissions` skip
 `canUseTool`, which *is* the confinement. Both layers are fail-closed and must stay
@@ -191,6 +229,7 @@ silently:
 | `<!--plumi:download-->`, `<!--plumi:file-->` | `server/system-prompt.js` | `public/js/exports.js`, `js/panels/deliverables.js` |
 | `plumi:open` postMessage | `public/sw.js` | `js/panels/notify.js`, `js/library.js` |
 | `plumi-turn-done` tag | `public/sw.js` | `js/panels/notify.js` |
+| `plumi:queue` postMessage | `public/grid.html` | `js/tray.js` |
 | `window.PlumiUI` | `public/ui.js` | settings / operations / grid |
 | `window.PlumiTheme` | `public/theme.js` | `js/panels/theme-toggle.js`, settings |
 
