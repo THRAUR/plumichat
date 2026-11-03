@@ -13,7 +13,7 @@ import { ARCHIVE_SVG, PIN_SVG, UNARCHIVE_SVG } from './icons.js';
 import { pickerLabel, renderMenu } from './projects.js';
 import { clearMessages, renderMessages } from './render.js';
 import { activeSessionId, activeStreams, draftFor, drafts, dropIdleDrafts, freshViewKey, projName, projects, runningElsewhere, sessionsCache, setActiveSessionId, setCurrent, setViewKey, startDraft, viewKey, viewToken } from './state.js';
-import { friendlyModel, setStatus, setTurnModelInfo, syncRuns } from './stream.js';
+import { friendlyModel, refreshResumeNote, setStatus, setTurnModelInfo, syncRuns } from './stream.js';
 import { waitingState } from './tasks.js';
 import { flushQueued, renderTaskTray, refreshQueue } from './tray.js';
 import { renderUsageChip } from './usage.js';
@@ -440,6 +440,7 @@ export function openSession(name, id) {
     updateTopbarTitle();
     reflectStream(id);
     syncRuns(); // reattach if this conversation has a turn still running
+    refreshResumeNote(id); // …or one waiting for its usage window to reopen
   });
 }
 

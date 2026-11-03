@@ -19,6 +19,7 @@ import { sendToUser } from './push.js';
 import { turnMemory, captureTurn } from './memory.js';
 import { turnImage } from './imagegen.js';
 import { compactAtFor, updateUserDefaults } from './users.js';
+import { settleResume, releaseResume, pausedLine } from './resume.js';
 
 const runs = new Map();          // key (sessionId | tempId) -> Run
 const asks = new Map();          // askId -> { run, resolve }
@@ -86,7 +87,8 @@ function maybePushTitle(run) {
 // title / ask / ended / done are replayed explicitly by subscribe() instead.
 // 'fastOff' stays out on purpose: replayed to a late attacher, it would turn off a
 // switch the person has since turned back on. The account already holds the answer.
-const BUFFERED =new Set(['text', 'thinking', 'tool', 'notice', 'result', 'waiting', 'task', 'limits', 'context', 'sentNow']);
+// 'resumeArmed' is in: it is the one line that says the work is not over.
+const BUFFERED =new Set(['text', 'thinking', 'tool', 'notice', 'result', 'waiting', 'task', 'limits', 'context', 'sentNow', 'resumeArmed']);
 // Deltas arrive one per token, so both streaming kinds are coalesced into the
 // previous entry of the same kind — one entry per paragraph-run, not per token.
 const COALESCED = new Set(['text', 'thinking']);
@@ -244,7 +246,9 @@ function emit(run, event) {
 // for the same conversation (one in-flight turn per conversation).
 // `memoryText` is what the person actually typed, when that differs from `prompt`
 // (index.js prefixes attachment instructions); memory keeps the former.
-export function startRun({ project, cwd, prompt, sessionId, model, effort, fastMode, context1m, permissionMode, confineHome, userId, memoryText }) {
+// `resumeTries` is server/resume.js starting the turn (see startResumed); nothing
+// that comes from a request may set it.
+export function startRun({ project, cwd, prompt, sessionId, model, effort, fastMode, context1m, permissionMode, confineHome, userId, memoryText, resumeTries }) {
   if (sessionId) {
     const existing = runs.get(sessionId);
     if (existing && existing.status === 'running') {
@@ -286,6 +290,10 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
   if (live >= MAX_RUNS) {
     throw new Error(`The box is busy with ${live} turns — wait for one to finish and try again.`);
   }
+  // A conversation waiting for its usage window is taken over by any other turn
+  // that starts in it: that turn decides now, and re-arms if it stops on the limit
+  // too. Only past the refusals above, so a turn that never started takes nothing.
+  if (sessionId && !resumeTries) releaseResume(sessionId);
 
   const id = 'run:' + (nextRunId++);
   const allowAlways = (sessionId && sessionAllow.get(sessionId)) || new Set();
@@ -331,6 +339,8 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     cleanupTimer: null,
     pushInput: null,            // hands the running turn a message; see sendQueuedNow
     sentNow: [],                // what was sent into this turn while it ran, for memory
+    resume: resumeTries ? { tries: resumeTries } : null, // started by server/resume.js
+    limitStop: null,            // { resetsAt, kind } when it stopped on a usage limit
   };
   runs.set(run.key, run);
 
@@ -407,6 +417,13 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
     if (event.type === 'fastOff' && userId) {
       try { updateUserDefaults(userId, { fastMode: false }); }
       catch (err) { console.error('[runs] could not switch fast mode off:', err?.message || err); }
+    }
+    // Not for the page: the server arms the continuation when the turn ends
+    // (settleResume, below) and the page hears 'resumeArmed' instead. As a live-only
+    // event this reached a page only if one was attached at that very second.
+    if (event.type === 'limitPause') {
+      run.limitStop = { resetsAt: event.resetsAt ?? null, kind: event.kind || '' };
+      return;
     }
     emit(run, event);
   };
@@ -496,6 +513,13 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
         } catch { /* never block done on a title failure */ }
       }
       run.endedAt = Date.now();
+      // Stopped on the usage limit? Then it carries on by itself when the window
+      // reopens, armed HERE, where it cannot depend on a page being open. Before
+      // 'ended', so a page that is watching shows the note with the stop.
+      let resumed = null;
+      try { resumed = await settleResume(run); }
+      catch (err) { console.error('[resume] could not arm:', err?.message || err); }
+      if (resumed) emit(run, { type: 'resumeArmed', resume: resumed });
       // Remember the exchange, but only for a turn that FINISHED: a stopped or failed
       // one is half a thought. Fire-and-forget, so it can never delay 'done'.
       if (memory && run.status === 'done') {
@@ -513,10 +537,11 @@ export function startRun({ project, cwd, prompt, sessionId, model, effort, fastM
       // 'ended' so the wording matches the outcome we just derived, and after
       // 'done' so a slow push can never delay the turn's own completion.
       pushIfAway(run,
-        run.stalled ? `The turn ended — ${run.reason}.`
-          : run.status === 'stopped' ? 'The turn was stopped.'
-            : run.status === 'error' ? 'The turn hit an error.'
-              : 'Your task is ready.');
+        resumed ? pausedLine(resumed)
+          : run.stalled ? `The turn ended — ${run.reason}.`
+            : run.status === 'stopped' ? 'The turn was stopped.'
+              : run.status === 'error' ? 'The turn hit an error.'
+                : 'Your task is ready.');
       // Anything typed ahead during this turn goes out now. Server-side on purpose:
       // the queue's whole promise is that it survives the tab that typed it, so a
       // closed window, a hard refresh or a phone that went to sleep must not be
@@ -572,6 +597,15 @@ function startQueued(row, sessionId) {
     prompt: row.prompt,
   });
   emit(run, { type: 'sentNow', first: true, text: row.wire, atts: queuedAtts(row) });
+  return run;
+}
+
+// The turn server/resume.js starts when a usage window reopens: "continue", in the
+// conversation and on the parameters the stopped turn had. The event is what puts
+// the message on screen, as for a queued message: no page typed it.
+export function startResumed(spec, tries) {
+  const run = startRun({ ...spec, prompt: 'continue', resumeTries: Math.max(1, tries || 1) });
+  emit(run, { type: 'sentNow', first: true, text: 'continue', atts: [] });
   return run;
 }
 

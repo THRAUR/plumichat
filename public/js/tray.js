@@ -7,7 +7,7 @@ import { $, EMBED, input, toast } from './dom.js';
 import { reqJSON, apiFetch } from './api.js';
 import { TRAY_CHEV } from './icons.js';
 import { activeStreams, pending, reattachTries, setPending, viewKey } from './state.js';
-import { followStartedTurn, send, stopCurrent, syncRuns, uploadOne } from './stream.js';
+import { followStartedTurn, refreshResumeNote, send, stopCurrent, syncRuns, uploadOne } from './stream.js';
 import { onTasksChanged, tasksFor, waitingFor } from './tasks.js';
 import { renderUsageChip } from './usage.js';
 
@@ -509,6 +509,8 @@ var queueES = null;
 function queueChanged() {
   refreshQueue(viewKey);
   syncRuns();
+  // The same ping says a resume was armed, cancelled or fired (server/resume.js).
+  refreshResumeNote(viewKey);
 }
 export function initQueueSync() {
   // A pane of a split view hears this from the board, which holds one stream for all

@@ -88,6 +88,16 @@ and tells you — the same way the terminal behaves. The tray shows what it is w
 on, and Stop ends the turn and the work together. Background work may keep a turn
 open for up to `PLUMI_BACKGROUND_MAX_MS` (1 hour) after its reply.
 
+**A usage limit is a pause, not an ending.** When a turn stops because the plan's
+5-hour or weekly allowance ran out, the server picks it back up by itself a minute
+after the window reopens, by sending "continue" into the same conversation. Nothing
+has to stay open, no browser and no phone: the conversation shows when it will carry
+on, with a *Cancel*, and a notification says when it does. It checks the plan's usage
+before it sends, so it never pours "continue" into a window that is still spent; it
+waits its turn when the box is busy, and it carries on after a server restart.
+Sending anything yourself in the meantime takes over. `PLUMI_AUTO_RESUME=0` turns it
+off.
+
 ### The composer
 
 | Control | What it does |

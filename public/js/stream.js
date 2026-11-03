@@ -23,7 +23,7 @@ import { noteContext } from './panels/context.js';
 import { permAllowed, permMode } from './panels/perm.js';
 import { addError, addNotice, addRow, addTool, addUser, makeFileBox, mdNode, scrollDown } from './render.js';
 import { REATTACH_COOLDOWN_MS, activeSessionId, activeStreams, cur, draftFor, drafts, endedRun, endingsSeen, projName, reattachTries, recentlyEnded, resetReattachTries, sessionsCache, setActiveSessionId, setCur, setRunningElsewhere, setViewKey, viewKey, viewToken } from './state.js';
-import { addTurnUsage, clearTasks, emitTasksChanged, limitResetMs, noteTask, rekeyTaskState, setLimits, thinkingState, waitingState } from './tasks.js';
+import { addTurnUsage, clearTasks, emitTasksChanged, noteTask, rekeyTaskState, setLimits, thinkingState, waitingState } from './tasks.js';
 import { flushQueued, renderTaskTray, rekeyQueue } from './tray.js';
 
 /* ---------- Live streaming assistant ---------- */
@@ -702,7 +702,8 @@ export function consumeStream(stream, project, responsePromise) {
     if (ev.type === "ended") {
       // `stalled` — the server's background-wait valve ended it, not a human.
       // Same 'stopped' status (Continue still applies), different wording.
-      stream.ended = { status: ev.status, reason: ev.reason, stalled: !!ev.stalled };
+      // `runId` is what the re-attach cooldown compares (endedRun, in onDone).
+      stream.ended = { status: ev.status, reason: ev.reason, stalled: !!ev.stalled, runId: ev.runId };
       // We have this run's ending in hand: syncRuns must not re-deliver it from
       // the server's ten-minute ended-run window on every wake-up.
       endingsSeen[stream.convKey] = true;
@@ -735,11 +736,12 @@ export function consumeStream(stream, project, responsePromise) {
       emitTasksChanged(stream.convKey);
       return;
     }
-    // The window is spent and the reset time is known: offer to carry the work on
-    // by itself. Rendered where the turn stopped, so it reads as part of the
-    // conversation rather than a system banner somewhere else.
-    if (ev.type === "limitPause") {
-      addResumeOffer(stream.convKey, ev);
+    // The window is spent, and the server has already armed the continuation.
+    // Rendered where the turn stopped, so it reads as part of the conversation
+    // rather than a system banner somewhere else. A page that was not watching
+    // finds the same thing in GET /api/resume when it opens the conversation.
+    if (ev.type === "resumeArmed") {
+      if (live() && ev.resume) showResumeNote(stream.convKey, ev.resume);
       return;
     }
     if (ev.type === "thinkingTokens") {
@@ -851,70 +853,95 @@ export function stopCurrent() {
   }).catch(function (e) { toast(e.message || "Stop failed", true); });
 }
 
-/* The offer to carry on when the usage window reopens.
+/* The note that a stopped turn carries on by itself when the usage window reopens.
 
-   The whole point is that the person is about to stop watching, so the card
-   states the actual clock time it will resume, not "in 2 hours" — a relative
-   figure is unreadable once you have walked away from it. Arming is server-side
-   (POST /api/resume/arm); nothing here needs to stay open, which is exactly why
-   a browser timer would have been the wrong shape for this. */
-export function addResumeOffer(key, ev) {
-  var resetMs = limitResetMs({ resetsAt: ev.resetsAt });
-  if (!resetMs || resetMs <= Date.now()) return;   // nothing sensible to offer
+   The server arms it (server/resume.js) the moment the turn stops on the limit;
+   this only says so, with a Cancel. It used to be an offer that had to be tapped,
+   and the offer only reached a page that was attached at that very second, so a
+   phone that was locked came back to a plain error. The note states the actual
+   clock time, not "in 2 hours" — a relative figure is unreadable once you have
+   walked away from it. */
+var LIMIT_NAMES = {
+  five_hour: "5-hour limit", seven_day: "Weekly limit",
+  seven_day_opus: "Weekly Opus limit", seven_day_sonnet: "Weekly Sonnet limit"
+};
+function resumeText(row, whenText) {
+  if (row.source === "retry") {
+    return "The paused work hit an error" + (row.why ? " (" + row.why.replace(/[.\s]+$/, "") + ")" : "") +
+      ". Trying again at " + whenText + ".";
+  }
+  if (row.source === "guess") {
+    return "Usage limit reached. Checking again at " + whenText + ", and it carries on by itself once the window is open.";
+  }
+  return (LIMIT_NAMES[row.kind] || "Usage limit") + " reached. Continues automatically at " + whenText + ".";
+}
 
-  var when = new Date(resetMs);
+export function showResumeNote(key, row) {
+  if (key !== viewKey || !row || !row.resumeAt) return;
+  // One note, and it replaces the stop notice: that one's Continue would only
+  // send a message into a window that is still spent.
+  messages.querySelectorAll(".notice.stop:not(.resume-offer)").forEach(function (el) { el.remove(); });
+  // The same note is already up: leave it. Every "something changed" asks again,
+  // and redrawing it would take the Cancel away from under a finger.
+  var same = messages.querySelector(".notice.resume-offer.armed");
+  if (same && same.dataset.at === String(row.resumeAt) && same.dataset.src === String(row.source || "")) return;
+  messages.querySelectorAll(".notice.resume-offer").forEach(function (el) { el.remove(); });
+
+  var when = new Date(row.resumeAt);
   var clock = when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   var sameDay = when.toDateString() === new Date().toDateString();
   var whenText = clock + (sameDay ? "" : " on " + when.toLocaleDateString([], { weekday: "long" }));
 
   var n = document.createElement("div");
-  n.className = "notice stop resume-offer";
+  n.className = "notice stop resume-offer armed";
+  n.dataset.at = String(row.resumeAt);
+  n.dataset.src = String(row.source || "");
   n.innerHTML = '<span class="nico">' + STOP_NOTICE_ICON + "</span>";
   var s = document.createElement("span");
   s.className = "ntext";
-  s.textContent = (ev.kind === "seven_day" ? "Weekly" : "Usage") +
-    " limit reached — the next window opens at " + whenText + ".";
+  s.textContent = resumeText(row, whenText);
   n.appendChild(s);
 
-  var no = document.createElement("button");
-  no.type = "button"; no.className = "notice-dismiss"; no.textContent = "Not now";
-  no.addEventListener("click", function () { n.remove(); });
-
-  var yes = document.createElement("button");
-  yes.type = "button"; yes.className = "notice-continue"; yes.textContent = "Continue at " + clock;
-  yes.addEventListener("click", function () {
-    yes.disabled = true; yes.textContent = "Arming…";
-    apiFetch("/api/resume/arm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: key, resetsAt: ev.resetsAt, kind: ev.kind || "" })
-    }).then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.error || "could not arm"); }); })
-      .then(function () {
-        n.classList.add("armed");
-        s.textContent = "Picking this back up at " + whenText + ". You can close the app.";
-        yes.remove();
-        no.textContent = "Cancel";
-        no.onclick = null;
-        no.addEventListener("click", function () {
-          apiFetch("/api/resume/cancel", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key: key })
-          }).catch(function () {}).then(function () { n.remove(); });
-        });
-      })
-      .catch(function (err) {
-        yes.disabled = false; yes.textContent = "Continue at " + clock;
-        toast((err && err.message) || "Could not schedule that", true);
-      });
+  var cancel = document.createElement("button");
+  cancel.type = "button"; cancel.className = "notice-dismiss"; cancel.textContent = "Cancel";
+  cancel.addEventListener("click", function () {
+    cancel.disabled = true;
+    apiFetch("/api/resume/cancel", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: key })
+    }).then(function (r) {
+      if (!r.ok) throw new Error("Could not cancel that");
+      n.classList.remove("armed");
+      s.textContent = "It will not carry on by itself. Send \u201ccontinue\u201d when you want it to.";
+      cancel.remove();
+    }).catch(function (err) {
+      cancel.disabled = false;
+      toast((err && err.message) || "Could not cancel that", true);
+    });
   });
-
-  n.appendChild(no); n.appendChild(yes);
+  n.appendChild(cancel);
   messages.appendChild(n);
   scrollDown(false);
 }
 
+// Show what the server has armed for this conversation, or take a note down whose
+// resume has fired or gone. Called when a conversation opens and on every "something
+// changed" (tray.js), which is how a note armed or cancelled elsewhere shows up here.
+export function refreshResumeNote(key) {
+  if (!key) return Promise.resolve();
+  return reqJSON("/api/resume").then(function (rows) {
+    if (viewKey !== key) return;
+    var row = null;
+    (Array.isArray(rows) ? rows : []).forEach(function (r) { if (r && r.key === key) row = r; });
+    if (row) showResumeNote(key, row);
+    else messages.querySelectorAll(".notice.resume-offer.armed").forEach(function (el) { el.remove(); });
+  }).catch(function () { /* offline: the note can wait for the next look */ });
+}
+
 // Centered notice shown when a turn stops/errors, with a one-click Continue.
 export function addStopNotice(project, key, ended) {
+  // Already carrying on by itself: the note says when, and Continue would fail.
+  if (messages.querySelector(".notice.resume-offer.armed")) return;
   var n = document.createElement("div");
   n.className = "notice stop";
   n.innerHTML = '<span class="nico">' + STOP_NOTICE_ICON + "</span>";

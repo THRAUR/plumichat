@@ -37,6 +37,9 @@ function limitResetMs(v) {
   const t = Date.parse(String(v));
   return Number.isFinite(t) ? t : 0;
 }
+// How the engine words a stop on a plan's usage limit: "You've hit your 5-hour
+// limit · resets 6pm", "You've reached your weekly limit", "out of usage credits".
+const LIMIT_WORDS = /\b(hit|reached) your\b[^.\n]{0,40}\blimit\b|\bout of usage credits\b/i;
 
 function defaultModel() {
   let ws = '';
@@ -424,6 +427,10 @@ async function has1mVariant(id) {
 //   { type: 'waiting', tasks, text }    — a result landed but background work is still running
 //   { type: 'task', phase, id, name, description, status, summary } — task lifecycle row
 //   { type: 'limits', status, resetsAt, kind, overage }             — rate-limit window changed
+//   { type: 'limitPause', resetsAt, kind, status }                   — the turn stopped because the
+//        window is SPENT. resetsAt is null when the engine said "limit" without a rejected window
+//        to go with it. runs.js keeps it for itself and server/resume.js arms the continuation;
+//        the page never sees it.
 //   { type: 'thinkingTokens', estimated }                           — throttled thinking-token estimate
 //   { type: 'fastOff' }                                              — fast mode was refused for a reason
 //        that will repeat, so the account's switch goes off (runs.js saves it, stream.js shows it).
@@ -441,6 +448,17 @@ export async function runPrompt({
   // limit offer must never appear after one. Set by the is_error result branch
   // and by the catch below — the two ways a turn can fail.
   let turnFailed = false;
+  // Why it broke, if it was the usage limit. Three witnesses, any one enough: the
+  // window THIS turn read ('rejected', with its reset), the engine's own synthetic
+  // reply (error 'rate_limit'), and a 429 / "hit your limit" on the result or the
+  // throw. Per turn, not module-global: another conversation's reading says nothing
+  // about why this one failed.
+  let turnLimit = null;
+  let limitHit = false;
+  // The error RESULT was already shown. The SDK then throws the same text again
+  // ("Claude Code returned an error result: …"), which drew a second error row
+  // under every API error, a usage limit included.
+  let resultErrorShown = false;
   let stderrTail = '';
   const captureStderr = (d) => {
     stderrTail += d;
@@ -769,6 +787,9 @@ export async function runPrompt({
           }
         }
       } else if (message.type === 'assistant') {
+        // The engine writes "You've hit your 5-hour limit · resets 6pm" as a reply of
+        // its own (model '<synthetic>') and marks it, which is the plainest witness.
+        if (message.error === 'rate_limit') limitHit = true;
         // Text was already streamed via deltas; only surface tool calls here.
         // Skip AskUserQuestion: it's rendered as an interactive card via the
         // 'ask' event from canUseTool, so a tool row would be redundant.
@@ -792,8 +813,10 @@ export async function runPrompt({
           turnFailed = true;
           const raw = String(message.result || (message.errors || []).join('; ') || '').trim()
             || 'The turn ended on an error before finishing.';
+          if (message.api_error_status === 429 || LIMIT_WORDS.test(raw)) limitHit = true;
           console.error(`[claude] turn ended on an API error (session=${knownSession || 'new'}, status=${message.api_error_status ?? 'n/a'}): ${raw}`);
           onEvent({ type: 'error', message: friendlyError(raw, '') });
+          resultErrorShown = true;
         }
         // The terminal message also carries this turn's token usage and (when the
         // SDK computes it) the dollar cost — surface both so the UI can badge the
@@ -937,6 +960,7 @@ export async function runPrompt({
           kind: info.rateLimitType || '', overage: info.overageStatus || '',
         };
         lastLimits = { ...snap, at: Date.now() };   // remembered even when unchanged
+        turnLimit = { ...snap, overageResetsAt: info.overageResetsAt ?? null, at: lastLimits.at };
         if (sig !== limitsSig) {
           limitsSig = sig;
           onEvent({ type: 'limits', ...snap });
@@ -972,9 +996,12 @@ export async function runPrompt({
       // debuggable from the server log — the SDK otherwise discards it. Then show
       // the human a short, actionable line instead of the raw "exited with code N".
       const tail = stderrTail.trim();
+      if (LIMIT_WORDS.test(raw)) limitHit = true;
       console.error(`[claude] turn failed (session=${knownSession || 'new'}, cwd=${cwd}): ${raw}`);
       if (tail) console.error(`[claude] CLI stderr tail:\n${tail}`);
-      onEvent({ type: 'error', message: friendlyError(raw, tail) });
+      if (!(resultErrorShown && /returned an error result/i.test(raw))) {
+        onEvent({ type: 'error', message: friendlyError(raw, tail) });
+      }
     }
   } finally {
     // Unconditional: a live timer here would keep firing (and could abort a NEXT
@@ -993,13 +1020,25 @@ export async function runPrompt({
     //      window;
     //   3. the reading arrived during THIS turn (lastLimits is module-global and
     //      outlives one) and the reset is still ahead of us.
-    const lim = lastLimits;
-    if (turnFailed && lim && lim.at >= turnStart
-        && lim.status === 'rejected'
-        && !(abortController && abortController.signal.aborted)) {
-      if (limitResetMs(lim.resetsAt) > Date.now()) {
-        onEvent({ type: 'limitPause', resetsAt: lim.resetsAt, kind: lim.kind || '', status: lim.status });
-      }
+    // Condition 3 is now the turn's OWN reading (turnLimit). And a turn the engine
+    // said was stopped by the limit counts even when no rejected window came with
+    // it: the continuation is armed all the same, and server/resume.js asks the plan
+    // when it reopens. An offer could afford to be skipped; an automatic resume that
+    // is skipped is the work silently not happening.
+    const own = turnLimit && turnLimit.status === 'rejected' ? turnLimit : null;
+    // The account's window, read by another turn during this one, still says when it
+    // reopens — it is the same account. Used for the time only, never as the reason.
+    const shared = !own && limitHit && lastLimits && lastLimits.at >= turnStart
+      && lastLimits.status === 'rejected' ? lastLimits : null;
+    const lim = own || shared;
+    if (turnFailed && (own || limitHit) && !(abortController && abortController.signal.aborted)) {
+      const reset = lim ? (limitResetMs(lim.resetsAt) || limitResetMs(lim.overageResetsAt)) : 0;
+      onEvent({
+        type: 'limitPause',
+        resetsAt: reset > Date.now() ? reset : null,
+        kind: (lim && lim.kind) || '',
+        status: (lim && lim.status) || '',
+      });
     }
   }
   // How the turn ended, for the caller's end-reason line. Only the safety valve

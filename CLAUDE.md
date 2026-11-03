@@ -163,6 +163,22 @@ resumes. `runPrompt` reports the difference from the last one (`lastCostTotal` r
 figure the engine saved). Taking it as the turn's cost counted a long conversation again on
 every turn, on the reply's badge and on the monthly meter.
 
+**A turn stopped by the 5-hour or weekly limit is carried on by the SERVER (`server/resume.js`).**
+`settleResume` arms it in the run's `finally` from `claude.js`'s `limitPause`, keeps it in the
+`resumes` store, and sends `"continue"` a minute after the window reopens, from a 15s tick and a
+boot sweep: no tap, no open page. It used to be an offer that had to be tapped, sent as a
+live-only event, so a phone that was locked when the turn stopped came back to a plain error.
+- **Any one witness is a limit stop:** the turn's own `rate_limit_event` saying `'rejected'`,
+  the synthetic reply with `error: 'rate_limit'`, or a 429 / "hit your … limit". Never
+  `overageStatus`: it reads `'rejected'` permanently on any account without extra usage.
+- **The window is probed before the turn goes out** (`probeUsage`, an experimental control
+  request that runs no turn): a `"continue"` sent into a spent window stays in the conversation
+  as an error. When the probe fails, the turn goes out anyway.
+- **"Not right now" never ends it.** The caps are a wait, a restart in the middle fires it again
+  at boot, and only a human Stop, a spent budget, a vanished account or `MAX_TRIES` failed tries
+  end one, with a push. Its parameters come from the run, never a request body, and a member's
+  turn is clamped to `default` again at fire time. `PLUMI_AUTO_RESUME=0` turns it off.
+
 **Never weaken member confinement.** `/api/chat` clamps members to `default`
 permission mode server-side because `acceptEdits`/`bypassPermissions` skip
 `canUseTool`, which *is* the confinement. Both layers are fail-closed and must stay

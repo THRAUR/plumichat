@@ -18,8 +18,9 @@ export let limitsState = null;   // last {status, resetsAt, kind, overage} the s
 // resetsAt has been seen as both epoch seconds and epoch milliseconds; anything
 // that parses as a date is accepted, and anything that doesn't is simply not shown.
 // It lives HERE, with the limits state it reads, rather than in usage.js: stream.js
-// needs it too, and usage.js already imports stream.js — so importing it back would
-// have closed a cycle. server/resume.js and server/claude.js keep the same rule.
+// needed it too (for the resume offer it no longer makes), and usage.js already
+// imports stream.js — so importing it back would have closed a cycle.
+// server/resume.js and server/claude.js keep the same rule.
 export function limitResetMs(l) {
   if (!l || l.resetsAt == null) return 0;
   var v = l.resetsAt;
