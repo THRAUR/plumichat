@@ -28,6 +28,7 @@ import { ssoConfigured } from './apps.js';
 import { memoryConfigured, memoryBackend } from './memory.js';
 import { imagegenStatus, imagegenStudio } from './imagegen.js';
 import { cpuTempSource, cpuTempReason } from './machine.js';
+import { pushKeyState } from './push.js';
 
 const yes = (detail) => ({ available: true, reason: '', detail: detail || '' });
 const no = (reason) => ({ available: false, reason, detail: '' });
@@ -48,6 +49,7 @@ export async function capabilities() {
   const sandbox = sandboxKind();
   const tmux = findTmux();
   const pty = await probePty();
+  const pushKey = pushKeyState();
   const ports = listeningPortsCommand();
   const git = hasGit();
   const claudeCli = which('claude');
@@ -88,9 +90,11 @@ export async function capabilities() {
       : no(!pandoc ? 'pandoc is not installed.' : 'No Chrome/Chromium found. Install one, or set CHROME_BIN.'),
 
     // --- notifications -------------------------------------------------------
-    push: (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY)
+    // Asked of push.js, not process.env: push.js deletes the private key from the
+    // environment at import, so an env check said "no keypair" on every boot.
+    push: pushKey.ok
       ? yes('VAPID configured')
-      : no('No VAPID keypair yet. It is generated and written to .env the first time push is enabled.'),
+      : no(pushKey.reason || 'No VAPID keypair yet. It is generated and written to .env the first time push is enabled.'),
 
     // --- optional owner surfaces, all off until configured -------------------
     sites: ports

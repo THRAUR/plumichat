@@ -237,6 +237,21 @@ function ready() {
   return !unavailable;
 }
 
+// Whether push has a keypair, for the capability report (startup banner and
+// /api/capabilities). That report used to test process.env.VAPID_PRIVATE_KEY, which
+// the bootEnvKeys block deletes at import, so every boot that HAD a pair printed
+// "No VAPID keypair yet". This reads only what is already known and never loads,
+// validates or mints keys (ready() does that on first use), so asking can never
+// rotate the pair and strand every stored subscription.
+export function pushKeyState() {
+  if (checked) return unavailable ? { ok: false, reason: unavailable } : { ok: true };
+  if (bootEnvKeys.pub && bootEnvKeys.priv) return { ok: true };
+  if (bootEnvKeys.pub || bootEnvKeys.priv) {
+    return { ok: false, reason: 'Only one VAPID key is set. Start with --env-file=.env so both load, or clear both from .env to mint a new pair.' };
+  }
+  return { ok: false, reason: null }; // first run: the pair is minted when push is first enabled
+}
+
 /* --------------------------------- VAPID ---------------------------------- */
 
 // One JWT per push-service origin, reused until it is close to expiry. Signing is
